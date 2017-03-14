@@ -1,15 +1,15 @@
 #include "mbed.h"
 #include "rtos.h"
-
+ 
 //Photointerrupter input pins
 #define I1pin D2
 #define I2pin D11
 #define I3pin D12
-
+ 
 //Incremental encoder input pins
 #define CHA   D7
 #define CHB   D8  
-
+ 
 //Motor Drive output pins   //Mask in output byte
 #define L1Lpin D4           //0x01
 #define L1Hpin D5           //0x02
@@ -17,7 +17,7 @@
 #define L2Hpin D6           //0x08
 #define L3Lpin D9           //0x10
 #define L3Hpin D10          //0x20
-
+ 
 //Mapping from sequential drive states to motor phase outputs
 /*
 State   L1  L2  L3
@@ -30,24 +30,37 @@ State   L1  L2  L3
 6       -   -   -
 7       -   -   -
 */
+
+/*
+typedef enum 
+{
+
+    osPriorityLow           = -2,
+    osPriorityBelowNormal   = -1,
+    osPriorityNormal        =  0,
+    osPriorityAboveNormal   =  1,
+    osPriorityHigh          =  2,
+    osPriorityError        =  0x84
+} osPriority;
+*/
 //Drive state to output table
 const int8_t driveTable[] = {0x12,0x18,0x09,0x21,0x24,0x06,0x00,0x00};
-
+ 
 //Mapping from interrupter inputs to sequential rotor states. 0x00 and 0x07 are not valid
 const int8_t stateMap[] = {0x07,0x05,0x03,0x04,0x01,0x00,0x02,0x07};  
 //const int8_t stateMap[] = {0x07,0x01,0x03,0x02,0x05,0x00,0x04,0x07}; //Alternative if phase order of input or drive is reversed
-
+ 
 //Phase lead to make motor spin
 const int8_t lead = -2;  //2 for forwards, -2 for backwards
-
+ 
 //Status LED
 DigitalOut led1(LED1);
-
+ 
 //Photointerrupter inputs
 DigitalIn I1(I1pin);
 DigitalIn I2(I2pin);
 DigitalIn I3(I3pin);
-
+ 
 //Motor Drive outputs
 DigitalOut L1L(L1Lpin);
 DigitalOut L1H(L1Hpin);
@@ -55,10 +68,9 @@ DigitalOut L2L(L2Lpin);
 DigitalOut L2H(L2Hpin);
 DigitalOut L3L(L3Lpin);
 DigitalOut L3H(L3Hpin);
-
+ 
 //Set a given drive state
-void motorOut(int8_t driveState)
-{
+void motorOut(int8_t driveState){
     
     //Lookup the output byte from the drive state.
     int8_t driveOut = driveTable[driveState & 0x07];
@@ -78,14 +90,13 @@ void motorOut(int8_t driveState)
     if (driveOut & 0x08) L2H = 0;
     if (driveOut & 0x10) L3L = 1;
     if (driveOut & 0x20) L3H = 0;
-}
-
-//Convert photointerrupter inputs to a rotor state
-inline int8_t readRotorState()
-{
+    }
+    
+    //Convert photointerrupter inputs to a rotor state
+inline int8_t readRotorState(){
     return stateMap[I1 + 2*I2 + 4*I3];
-}
-
+    }
+ 
 //Basic synchronisation routine    
 int8_t motorHome() {
     //Put the motor in drive state 0 and wait for it to stabilise
@@ -95,200 +106,43 @@ int8_t motorHome() {
     //Get the rotor state
     return readRotorState();
 }
-
-// variables used in threads
-
-volatile int8_t intState = 0;
-volatile int8_t intStateOld = 0;
-
-
-volatile int8_t orState = 0;
-
-Thread thread_photo;
-Thread thread_calculation;
-
-void check_photo() {
-    while (true) {
-        intState = readRotorState();
-        wait_us(1000);
-    }
-}
-
-void calculation_work(){     ///////////// revolutions , reference_time , lead ,  must be in thee somewhere too
     
-    while (1) 
-    {  
-
-        ///int8_t local_intState = intState;
-        
-        if (intState != intStateOld)
-        {
-            
-            
-            if(intState == orState)
-            {
-                revolutions++;
-                //pc.printf("revs: %d\r\n",revolutions);
-                
-                // Calculate time for previous revolution
-                unsigned int current_time = t.read_us();
-                unsigned int time_passed = current_time - reference_time;
-                
-                
-                if (time_passed < 1000000.0/ang_velocity) // 1000000 us
-                {
-                     //pc.printf("Too Fast\n\r");
-                     wait_time+=500;   
-                }
-                else if (time_passed > 1000000.0/ang_velocity) // 1000000 us
-                {
-                     //pc.printf("Too Slow\n\r");
-                     if (wait_time >= 50)
-                     {    
-                        wait_time-=50;
-                     }
-                }
-                else
-                {
-                     pc.printf("Just Right\n\r");   
-                }
-                //pc.printf("Time Passed: %d\n\rWait Time: %d\n\r", time_passed, wait_time); 
-                reference_time = current_time;
-                
-                if (revolutions == target)
-                {
-                    pc.printf("Done\n\r");
-                    //break;
-                }
-            }
-            
-            
-            intStateOld = intState;
-            wait_us(wait_time);  //
-            motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive
-
-        }
-        
-    }
-}
+volatile int8_t intState;
 
 
-/*
-void revolutions_count() {
-                
-        if (revolutions == target)
-        {
-            pc.printf("Done\n\r");
-            //break;
-        }
-        else {
-        
-        }
-    */
-    
 
-    
-//Main
-int main() 
+void check_photo() 
 {
-    //int8_t orState = 0;    //Rotot offset at motor state 0  ///////////// made this global to be available in calculation_work
+    intState = readRotorState(); 
+    
+}
+
+Ticker photo_checker_interrupt;
+
+int main() {
+    int8_t orState = 0;    //Rotot offset at motor state 0
     
     //Initialise the serial port
     Serial pc(SERIAL_TX, SERIAL_RX);
-
-    //int8_t intStateOld = 0;           //////////////// made this global
+    
+    intState = 0;
+    int8_t intStateOld = 0;
     pc.printf("Hello\n\r");
     
     //Run the motor synchronisation
-    // Get starting state of photointerupters
-    orState = motorHome();              
+    orState = motorHome();
     pc.printf("Rotor origin: %x\n\r",orState);
-    //orState is subtracted from future rotor state inputs to align rotor and motor states
-    
-    int32_t revolutions = 0;
-    int32_t target = 200;
-    int32_t ang_velocity = 1000; // Revolutions per second
-    Timer t;
-    // unsigned int reference_time = 0;     ////////////////////// made global 
-    unsigned int wait_time = 0;
-    
-    int32_t local_intState = 0 ;
-    
-    
-    
-    
-    t.start();
-    thread_photo.start(check_photo);
-    local_intState = intState ;
-    
-    thread_calculation.start(calculation_work) // 
-    
-    //thread_revolutions.start(revolutions_count)
-    
 
     
+    photo_checker_interrupt.attach(&check_photo, 0.08);
     
-    
-    
-    
-    /*
-    
-    //Poll the rotor state and set the motor outputs accordingly to spin the motor
-    while (1) 
-    {  
-       ///intState = readRotorState();
-        
-        int8_t local_intState = intState;
-        
-        if (local_intState != intStateOld)
-        {
-            
-            
-            if(local_intState == orState)
-            {
-                revolutions++;
-                //pc.printf("revs: %d\r\n",revolutions);
-                
-                // Calculate time for previous revolution
-                unsigned int current_time = t.read_us();
-                unsigned int time_passed = current_time - reference_time;
-                
-                
-                if (time_passed < 1000000.0/ang_velocity) // 1000000 us
-                {
-                     //pc.printf("Too Fast\n\r");
-                     wait_time+=500;   
-                }
-                else if (time_passed > 1000000.0/ang_velocity) // 1000000 us
-                {
-                     //pc.printf("Too Slow\n\r");
-                     if (wait_time >= 50)
-                     {    
-                        wait_time-=50;
-                     }
-                }
-                else
-                {
-                     pc.printf("Just Right\n\r");   
-                }
-                //pc.printf("Time Passed: %d\n\rWait Time: %d\n\r", time_passed, wait_time); 
-                reference_time = current_time;
-                
-                if (revolutions == target)
-                {
-                    pc.printf("Done\n\r");
-                    //break;
-                }
-            }
-            
-            
+
+    while (1) {
+         pc.printf("%d\n\r",intState);
+        if (intState != intStateOld) {
             intStateOld = intState;
-            wait_us(wait_time);  //
             motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive
-
         }
-        
     }
-    */
 }
-
+ 

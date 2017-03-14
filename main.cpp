@@ -118,8 +118,10 @@ void check_photo()
 }
 
 Ticker photo_checker_interrupt;
+Timer timer;
 
-int main() {
+int main() 
+{
     int8_t orState = 0;    //Rotot offset at motor state 0
     
     //Initialise the serial port
@@ -133,15 +135,48 @@ int main() {
     orState = motorHome();
     pc.printf("Rotor origin: %x\n\r",orState);
 
+    uint32_t revolutions = 0;
+    uint32_t reference_time = 0;
+    uint32_t wait_time = 1;
+    uint32_t ang_velocity = 30; // Revolutions per second
     
-    photo_checker_interrupt.attach(&check_photo, 0.08);
+    photo_checker_interrupt.attach(&check_photo, 0.00005);
     
-
-    while (1) {
-         pc.printf("%d\n\r",intState);
-        if (intState != intStateOld) {
-            intStateOld = intState;
-            motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive
+    timer.start();
+    while (1) 
+    {
+        if (intState != intStateOld) 
+        {
+            if(intState == orState)
+            {
+               revolutions++;
+               
+               // Calculate time for previous revolution
+               uint32_t current_time = timer.read_us();
+               uint32_t time_passed = current_time - reference_time;
+               
+               if (time_passed < 1000000.0/ang_velocity) // 1000000 us
+                {
+                     //pc.printf("Too Fast\n\r");
+                     wait_time+=50;   
+                }
+                else if (time_passed > 1000000.0/ang_velocity) // 1000000 us
+                {
+                     //pc.printf("Too Slow\n\r");
+                     if (wait_time >= 5)
+                     {    
+                        wait_time-=5;
+                     }
+                }
+               
+               //pc.printf("%d\n\r", wait_time);
+               reference_time = current_time;
+            }
+               
+        intStateOld = intState;
+        wait_us(wait_time);
+        motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive
+            
         }
     }
 }

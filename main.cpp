@@ -1,6 +1,9 @@
 #include "mbed.h"
 #include "rtos.h"
- 
+#include "PID.h"
+#include "stdint.h"
+
+
 //Photointerrupter input pins
 #define I1pin D2
 #define I2pin D11
@@ -43,6 +46,16 @@ typedef enum
     osPriorityError        =  0x84
 } osPriority;
 */
+
+
+
+//Initialise the serial port
+Serial pc(SERIAL_TX, SERIAL_RX);
+
+
+
+
+
 //Drive state to output table
 const int8_t driveTable[] = {0x12,0x18,0x09,0x21,0x24,0x06,0x00,0x00};
  
@@ -107,25 +120,89 @@ int8_t motorHome() {
     return readRotorState();
 }
     
+/*************************************
+             Interrupts
+*************************************/  
+    
 volatile int8_t intState;
-
-
+Ticker photo_checker_interrupt;
+Timer timer;
 
 void check_photo() 
 {
     intState = readRotorState(); 
-    
 }
 
-Ticker photo_checker_interrupt;
-Timer timer;
+
+
+/*************************************
+             Threads
+*************************************/ 
+
+
+double ang_velocity = 100.0; // Revolutions per second
+double target_time_period = 1000000.0/ang_velocity; // 1000000 us
+double wait_time = 1.0; // us
+double time_passed = 0;
+
+//double error_sum = 0;
+double prev_error = 0;
+
+double kp = 5.0;
+double ki = 0.00005;
+double kd = 0.0;
+
+Timer pid_timer;
+uint64_t prev_time = 0;
+//uint32_t measurement_interval; // us
+double RATE = 0.5;
+
+PID controller(kp, ki, kd, RATE);
+
+
+Thread th_pid(osPriorityNormal);
+
+//Ticker interrupt_pid;
+void pid()
+{
+    while(true)
+    {
+        
+        pc.printf("PID \n\r");
+        
+        uint64_t time = pid_timer.read_us();
+        uint64_t time_since_last_pid = time - prev_time;
+        
+        //uint64_t time_since_last_pid = 1000;
+        double error = target_time_period - time_passed; // Proportional
+        //pc.printf("%f, %f, %f\n\r",target_time_period, time_passed, error);
+        double error_sum = error * time_since_last_pid; // Integral
+        double error_deriv = (error - prev_error) / time_since_last_pid; // Derivative
+        
+        double output = kp*error + ki*error_sum + kd*error_deriv;
+        wait_time = (output > 0) ? output : 0;
+        
+        prev_error = error;
+        prev_time = time;
+        
+        //controller.setProcessValue(time_passed);
+        //wait_time = controller.compute();
+        //pc.printf("%f %f\n\r", wait_time, time_passed);
+        Thread::wait(500); // ms    
+    }
+}
+
+/*************************************
+                Main
+*************************************/
 
 int main() 
 {
+    controller.setSetPoint(target_time_period);
+    controller.setInputLimits(1000, 1000000);
+    controller.setOutputLimits(0, 1<<30);
     int8_t orState = 0;    //Rotot offset at motor state 0
     
-    //Initialise the serial port
-    Serial pc(SERIAL_TX, SERIAL_RX);
     
     intState = 0;
     int8_t intStateOld = 0;
@@ -137,24 +214,32 @@ int main()
 
     uint32_t revolutions = 0;
     uint32_t reference_time = 0;
-    uint32_t wait_time = 1;
-    uint32_t ang_velocity = 30; // Revolutions per second
-    
-    photo_checker_interrupt.attach(&check_photo, 0.00005);
-    
+
+
     timer.start();
+    pid_timer.start();
+    
+    photo_checker_interrupt.attach(&check_photo, 0.0001);
+    
+    th_pid.start(&pid);
+    //interrupt_pid.attach(&pid, 0.001);
+    
     while (1) 
     {
-        if (intState != intStateOld) 
+        pc.printf("Main \n\r");
+        int8_t local_intState = intState;
+        if (local_intState != intStateOld) 
         {
-            if(intState == orState)
+            if(local_intState == orState)
             {
                revolutions++;
                
                // Calculate time for previous revolution
-               uint32_t current_time = timer.read_us();
-               uint32_t time_passed = current_time - reference_time;
-               
+               double current_time = (double)timer.read_us();
+               time_passed = current_time - reference_time;
+
+            
+               /*
                if (time_passed < 1000000.0/ang_velocity) // 1000000 us
                 {
                      //pc.printf("Too Fast\n\r");
@@ -168,14 +253,21 @@ int main()
                         wait_time-=5;
                      }
                 }
-               
+                
+                */
+
                //pc.printf("%d\n\r", wait_time);
                reference_time = current_time;
-            }
+               //pc.printf("%f\n\r", time_passed);
+               //pid();
                
-        intStateOld = intState;
+            }
+            
+            
+               
+        intStateOld = local_intState;
         wait_us(wait_time);
-        motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive
+        motorOut((local_intState-orState+lead+6)%6); //+6 to make sure the remainder is positive
             
         }
     }

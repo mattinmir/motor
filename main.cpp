@@ -2,7 +2,8 @@
 #include "rtos.h"
 #include "PID.h"
 #include "stdint.h"
-
+#include <limits>
+#include <algorithm>
 
 //Photointerrupter input pins
 #define I1pin D2
@@ -148,14 +149,14 @@ double time_passed = 0;
 //double error_sum = 0;
 double prev_error = 0;
 
-double kp = 5.0;
-double ki = 0.00005;
-double kd = 0.0;
+double kp = 10000000.0;
+double ki = 0.0;
+double kd = 10000000.0;
 
 Timer pid_timer;
 uint64_t prev_time = 0;
 //uint32_t measurement_interval; // us
-double RATE = 0.5;
+double RATE = 0.1;
 
 PID controller(kp, ki, kd, RATE);
 
@@ -163,6 +164,7 @@ PID controller(kp, ki, kd, RATE);
 Thread th_pid(osPriorityNormal);
 
 //Ticker interrupt_pid;
+/*
 void pid()
 {
     while(true)
@@ -191,16 +193,55 @@ void pid()
         Thread::wait(500); // ms    
     }
 }
+*/
 
+
+double revolutions;
+double target_revolutions = 200;
+double dbl_max = std::numeric_limits<double>::max();
+void pid()
+{
+    while(true)
+    {
+        
+        //pc.printf("PID \n\r");
+        
+        uint64_t time = pid_timer.read_us();
+        uint64_t time_since_last_pid = time - prev_time;
+        
+        //uint64_t time_since_last_pid = 1000;
+        double error = target_revolutions - revolutions   ; // Proportional
+        error = (error > 0) ? error : 0;
+        double error_sum = error * (double)time_since_last_pid; // Integral
+        double error_deriv = (error - prev_error) / (double)time_since_last_pid; // Derivative
+        
+        pc.printf("%f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, wait_time, error_deriv);
+        
+        double output = std::min(1.0/(kp*error + ki*error_sum + kd*error_deriv), dbl_max);
+        wait_time = (output > 0) ? output : 0;
+        
+        prev_error = error;
+        prev_time = time;
+        
+        //controller.setProcessValue(time_passed);
+        //wait_time = controller.compute();
+        //pc.printf("%f %f\n\r", wait_time, time_passed);
+        Thread::wait(100); // ms    
+    }
+}
 /*************************************
                 Main
 *************************************/
 
 int main() 
 {
+    /*
     controller.setSetPoint(target_time_period);
     controller.setInputLimits(1000, 1000000);
     controller.setOutputLimits(0, 1<<30);
+    */
+    
+    
     int8_t orState = 0;    //Rotot offset at motor state 0
     
     
@@ -212,7 +253,7 @@ int main()
     orState = motorHome();
     pc.printf("Rotor origin: %x\n\r",orState);
 
-    uint32_t revolutions = 0;
+    revolutions = 0;
     uint32_t reference_time = 0;
 
 
@@ -226,14 +267,14 @@ int main()
     
     while (1) 
     {
-        pc.printf("Main \n\r");
+        //pc.printf("Main \n\r");
         int8_t local_intState = intState;
         if (local_intState != intStateOld) 
         {
             if(local_intState == orState)
             {
                revolutions++;
-               
+               //pc.printf("%d\n\r", revolutions);
                // Calculate time for previous revolution
                double current_time = (double)timer.read_us();
                time_passed = current_time - reference_time;

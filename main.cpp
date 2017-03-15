@@ -163,6 +163,8 @@ PID controller(kp, ki, kd, RATE);
 
 Thread th_pid(osPriorityNormal);
 
+Thread thread_user_input(osPriorityLow);
+
 //Ticker interrupt_pid;
 /*
 void pid()
@@ -199,6 +201,12 @@ void pid()
 double revolutions;
 double target_revolutions = 200;
 double dbl_max = std::numeric_limits<double>::max();
+
+char input[5];
+char ch;
+int index = 0 ;
+
+
 void pid()
 {
     while(true)
@@ -229,6 +237,40 @@ void pid()
         Thread::wait(100); // ms    
     }
 }
+
+/*
+void user_input()
+{
+    while(true)
+    {
+        if(pc.readable()){
+        
+        //bool input_flag = 1 ;
+        
+        //while(input_flag == 1) {
+            //ch = pc.getc();
+           // input[index++] = ch - '0'; 
+            
+            //if(ch ='\n')
+            
+        //}
+        
+        
+        while(ch != ' '){           ///////// would look of \n but there was some problem with putty 
+            ch = pc.getc();
+            input[index++] = ch - '0';   
+        }
+     target_revolutions = 100*input[0]+10*input[1]+input[2] ;   
+    }
+    
+    }
+       
+    
+}
+*/
+
+//////////Ticker input_ticker ;
+
 /*************************************
                 Main
 *************************************/
@@ -264,6 +306,10 @@ int main()
     
     th_pid.start(&pid);
     //interrupt_pid.attach(&pid, 0.001);
+    //thread_user_input.start(&user_input);
+    
+    ////////////input_ticker.attach(&read_in , 10) ;
+    
     
     while (1) 
     {
@@ -311,6 +357,20 @@ int main()
         motorOut((local_intState-orState+lead+6)%6); //+6 to make sure the remainder is positive
             
         }
+    
+    if(pc.readable()){      // if a key is pressed then read in each char and put into string to be processed into commands
+              
+        while(ch != '\r'){           ///////// would look of \n but there was some problem with putty  
+            ch = pc.getc();
+            input[index++] = ch - '0';  
+             
+        }
+     target_revolutions = 100*input[0]+10*input[1]+input[2] ; 
+     ch = '0';  
     }
+    pc.printf(" target from input input: %s \n\r" , target_revolutions) ;
+    
+    }
+    
 }
  

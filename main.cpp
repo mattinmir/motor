@@ -4,6 +4,7 @@
 #include "stdint.h"
 #include <limits>
 #include <algorithm>
+#include <RawSerial.h>
 
 //Photointerrupter input pins
 #define I1pin D2
@@ -52,6 +53,7 @@ typedef enum
 
 //Initialise the serial port
 Serial pc(SERIAL_TX, SERIAL_RX);
+//rawSerial pc(USBTX,USBRX);
 
 
 
@@ -149,9 +151,9 @@ double time_passed = 0;
 //double error_sum = 0;
 double prev_error = 0;
 
-double kp = 10000000.0;
+double kp = 1.0;
 double ki = 0.0;
-double kd = 10000000.0;
+double kd = 1000000.0;
 
 Timer pid_timer;
 uint64_t prev_time = 0;
@@ -202,11 +204,10 @@ double revolutions;
 double target_revolutions = 200;
 double dbl_max = std::numeric_limits<double>::max();
 
+
 char input[5];
 char ch;
 int index = 0 ;
-
-
 void pid()
 {
     while(true)
@@ -219,14 +220,18 @@ void pid()
         
         //uint64_t time_since_last_pid = 1000;
         double error = target_revolutions - revolutions   ; // Proportional
+        
         error = (error > 0) ? error : 0;
         double error_sum = error * (double)time_since_last_pid; // Integral
         double error_deriv = (error - prev_error) / (double)time_since_last_pid; // Derivative
         
-        pc.printf("%f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, wait_time, error_deriv);
         
-        double output = std::min(1.0/(kp*error + ki*error_sum + kd*error_deriv), dbl_max);
-        wait_time = (output > 0) ? output : 0;
+        
+        //double output = std::min(1.0/(kp*error + ki*error_sum + kd*error_deriv), dbl_max);
+        double output = kp*error + ki*error_sum + kd*error_deriv;
+        double output_angular_velocity = (output > 0) ? output : 0.00000000000001; //if angular velocity is 0 floor it to 0.0001
+        wait_time = 1000000.0/((output_angular_velocity)*6.0);
+        pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, wait_time, output_angular_velocity, error_deriv);
         
         prev_error = error;
         prev_time = time;
@@ -269,6 +274,17 @@ void user_input()
 }
 */
 
+/*void readbuf()
+ {
+    if (readSize >= sizeof(cWord)) { readSize = sizeof(cWord)-1; }
+    int iRtn =  pc.GetString(readSize,cWord); //Serial received chars byref of cWord
+    pc.printf("inputreadbuff %s \n\r" , cWord) ;
+ }*/
+
+
+
+
+
 //////////Ticker input_ticker ;
 
 /*************************************
@@ -277,11 +293,19 @@ void user_input()
 
 int main() 
 {
+    
     /*
     controller.setSetPoint(target_time_period);
     controller.setInputLimits(1000, 1000000);
     controller.setOutputLimits(0, 1<<30);
     */
+    
+    /*Reading Input Variables*/ 
+    
+
+    char cWord[16];
+    int readSize = 15;
+
     
     
     int8_t orState = 0;    //Rotot offset at motor state 0
@@ -360,7 +384,7 @@ int main()
     
     if(pc.readable()){      // if a key is pressed then read in each char and put into string to be processed into commands
               
-        while(ch != '\r'){           ///////// would look of \n but there was some problem with putty  
+        while(ch != '\n\r'){           ///////// would look of \n but there was some problem with putty  
             ch = pc.getc();
             input[index++] = ch - '0';  
              
@@ -368,7 +392,16 @@ int main()
      target_revolutions = 100*input[0]+10*input[1]+input[2] ; 
      ch = '0';  
     }
-    pc.printf(" target from input input: %s \n\r" , target_revolutions) ;
+    
+  /*  pc.baud(9600);                  //set baud rate
+    pc.format(8, MySerial::None, 1);//set bits for a byte, parity bit, stop bit
+    pc.SetRxWait(0.01, 0.001);       //set wait getting chars after interrupted, each char
+    pc.attach( readbuf, MySerial::RxIrq );    //Set Interrupt by Serial receive
+    
+    //pc.printf(" target from input input: %s \n\r" , target_revolutions) ;
+    pc.printf("input %s \n\r" , cWord) ;*/
+    
+    
     
     }
     

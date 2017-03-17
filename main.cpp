@@ -55,6 +55,7 @@ typedef enum
 Serial pc(SERIAL_TX, SERIAL_RX);
 //rawSerial pc(USBTX,USBRX);
 
+double dbl_max = std::numeric_limits<double>::max();
 
 
 
@@ -142,150 +143,79 @@ void check_photo()
              Threads
 *************************************/ 
 
+/* PID */
 
-double ang_velocity = 100.0; // Revolutions per second
-double target_time_period = 1000000.0/ang_velocity; // 1000000 us
+Thread th_pid(osPriorityNormal, 2048);
+Timer pid_timer;
+
+double kp = 0.1;
+double ki = 0.0;
+double kd = 10000000000;
+
+double target_ang_velocity = 100.0; // Revolutions per second
+double target_time_period = 1000000.0/target_ang_velocity; // 1000000 us
+double target_revolutions = 100;
+
+double revolutions = 0;
+
 double wait_time = 1.0; // us
 double time_passed = 0;
 
-//double error_sum = 0;
 double prev_error = 0;
-
-double kp = 1.0;
-double ki = 0.0;
-double kd = 1000000.0;
-
-Timer pid_timer;
 uint64_t prev_time = 0;
-//uint32_t measurement_interval; // us
-double RATE = 0.1;
 
-PID controller(kp, ki, kd, RATE);
+int8_t changed_intState;
+int8_t orState;
 
-
-Thread th_pid(osPriorityNormal);
-
-Thread thread_user_input(osPriorityLow);
-
-//Ticker interrupt_pid;
-/*
 void pid()
 {
     while(true)
     {
-        
-        pc.printf("PID \n\r");
-        
-        uint64_t time = pid_timer.read_us();
-        uint64_t time_since_last_pid = time - prev_time;
-        
-        //uint64_t time_since_last_pid = 1000;
-        double error = target_time_period - time_passed; // Proportional
-        //pc.printf("%f, %f, %f\n\r",target_time_period, time_passed, error);
-        double error_sum = error * time_since_last_pid; // Integral
-        double error_deriv = (error - prev_error) / time_since_last_pid; // Derivative
-        
-        double output = kp*error + ki*error_sum + kd*error_deriv;
-        wait_time = (output > 0) ? output : 0;
-        
-        prev_error = error;
-        prev_time = time;
-        
-        //controller.setProcessValue(time_passed);
-        //wait_time = controller.compute();
-        //pc.printf("%f %f\n\r", wait_time, time_passed);
-        Thread::wait(500); // ms    
-    }
-}
-*/
-
-
-double revolutions;
-double target_revolutions = 200;
-double dbl_max = std::numeric_limits<double>::max();
-
-
-char input[5];
-char ch;
-int index = 0 ;
-void pid()
-{
-    while(true)
-    {
-        
         //pc.printf("PID \n\r");
         
+        // Get time since last PID
         uint64_t time = pid_timer.read_us();
         uint64_t time_since_last_pid = time - prev_time;
-        
-        //uint64_t time_since_last_pid = 1000;
+    
+        // Calculate errors
         double error = target_revolutions - revolutions   ; // Proportional
-        
-        error = (error > 0) ? error : 0;
         double error_sum = error * (double)time_since_last_pid; // Integral
-        double error_deriv = (error - prev_error) / (double)time_since_last_pid; // Derivative
+        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000); // Derivative
         
-        
-        
-        //double output = std::min(1.0/(kp*error + ki*error_sum + kd*error_deriv), dbl_max);
+        // Weight errors to calculate output
         double output = kp*error + ki*error_sum + kd*error_deriv;
-        double output_angular_velocity = (output > 0) ? output : 0.00000000000001; //if angular velocity is 0 floor it to 0.0001
-        wait_time = 1000000.0/((output_angular_velocity)*6.0);
-        pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, wait_time, output_angular_velocity, error_deriv);
         
+        // Lower limit output to small non-zero value to avoid divby0 error
+        double output_angular_velocity = (output > 0) ? output : 0.00000000000001; 
+        wait_time = 1000000.0/((output_angular_velocity)*6.0);
+        
+        
+        // Store values for next iteration
         prev_error = error;
         prev_time = time;
         
-        //controller.setProcessValue(time_passed);
-        //wait_time = controller.compute();
-        //pc.printf("%f %f\n\r", wait_time, time_passed);
+        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, wait_time, output_angular_velocity, error_deriv);
+        
         Thread::wait(100); // ms    
     }
 }
 
-/*
-void user_input()
+
+
+/* Motor Control */
+
+Thread th_motor_control(osPriorityNormal, 1024);
+
+void move_field()
 {
     while(true)
     {
-        if(pc.readable()){
-        
-        //bool input_flag = 1 ;
-        
-        //while(input_flag == 1) {
-            //ch = pc.getc();
-           // input[index++] = ch - '0'; 
-            
-            //if(ch ='\n')
-            
-        //}
-        
-        
-        while(ch != ' '){           ///////// would look of \n but there was some problem with putty 
-            ch = pc.getc();
-            input[index++] = ch - '0';   
-        }
-     target_revolutions = 100*input[0]+10*input[1]+input[2] ;   
+        Thread::wait(wait_time/1000.0);  
+        motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive 
     }
-    
-    }
-       
-    
 }
-*/
-
-/*void readbuf()
- {
-    if (readSize >= sizeof(cWord)) { readSize = sizeof(cWord)-1; }
-    int iRtn =  pc.GetString(readSize,cWord); //Serial received chars byref of cWord
-    pc.printf("inputreadbuff %s \n\r" , cWord) ;
- }*/
 
 
-
-
-
-//////////Ticker input_ticker ;
 
 /*************************************
                 Main
@@ -293,117 +223,76 @@ void user_input()
 
 int main() 
 {
-    
-    /*
-    controller.setSetPoint(target_time_period);
-    controller.setInputLimits(1000, 1000000);
-    controller.setOutputLimits(0, 1<<30);
-    */
-    
-    /*Reading Input Variables*/ 
-    
-
-    char cWord[16];
-    int readSize = 15;
-
-    
-    
-    int8_t orState = 0;    //Rotot offset at motor state 0
-    
-    
-    intState = 0;
-    int8_t intStateOld = 0;
-    pc.printf("Hello\n\r");
-    
-    //Run the motor synchronisation
     orState = motorHome();
+    int8_t intStateOld = 0;
+    intState = orState;
+    changed_intState = orState;
+    uint32_t reference_time = 0;
+    //new_state = true;
+    
+    pc.printf("Hello\n\r");
     pc.printf("Rotor origin: %x\n\r",orState);
 
-    revolutions = 0;
-    uint32_t reference_time = 0;
+    
 
-
+    /* Start Timers */
     timer.start();
     pid_timer.start();
     
+    /* Start Interrupts */
     photo_checker_interrupt.attach(&check_photo, 0.0001);
     
+    /* Start Threads */
     th_pid.start(&pid);
-    //interrupt_pid.attach(&pid, 0.001);
-    //thread_user_input.start(&user_input);
-    
-    ////////////input_ticker.attach(&read_in , 10) ;
+    th_motor_control.start(&move_field);
     
     
-    while (1) 
-    {
-        //pc.printf("Main \n\r");
+    while (true) 
+    {        
+        pc.printf("%f\n\r", revolutions);
+        
         int8_t local_intState = intState;
         if (local_intState != intStateOld) 
         {
+            //new_state = true;
+            //changed_intState = local_intState;
             if(local_intState == orState)
             {
                revolutions++;
-               //pc.printf("%d\n\r", revolutions);
+            
                // Calculate time for previous revolution
                double current_time = (double)timer.read_us();
                time_passed = current_time - reference_time;
 
-            
-               /*
-               if (time_passed < 1000000.0/ang_velocity) // 1000000 us
-                {
-                     //pc.printf("Too Fast\n\r");
-                     wait_time+=50;   
-                }
-                else if (time_passed > 1000000.0/ang_velocity) // 1000000 us
-                {
-                     //pc.printf("Too Slow\n\r");
-                     if (wait_time >= 5)
-                     {    
-                        wait_time-=5;
-                     }
-                }
-                
-                */
-
-               //pc.printf("%d\n\r", wait_time);
                reference_time = current_time;
-               //pc.printf("%f\n\r", time_passed);
-               //pid();
-               
             }
             
             
-               
-        intStateOld = local_intState;
-        wait_us(wait_time);
-        motorOut((local_intState-orState+lead+6)%6); //+6 to make sure the remainder is positive
+            intStateOld = local_intState;            
+        }
+        
+        // On keypress read in chars and put into string to be processed into commands
+        if(pc.readable())
+        {     
+            unsigned index = 0; 
+            char cmd[20];
+            char ch;
             
-        }
-    
-    if(pc.readable()){      // if a key is pressed then read in each char and put into string to be processed into commands
-              
-        while(ch != '\n\r'){           ///////// would look of \n but there was some problem with putty  
-            ch = pc.getc();
-            input[index++] = ch - '0';  
-             
-        }
-     target_revolutions = 100*input[0]+10*input[1]+input[2] ; 
-     ch = '0';  
+            while(ch != '\r')
+            {           
+                ch = pc.getc();
+                
+                if(ch == 'R')
+                {  
+                    
+                }
+                cmd[index++] = ch - '0';
+                pc.printf("%c",ch);    
+            }
+         //target_revolutions = 100*input[0] + 10*input[1] + input[2] ; 
+         //ch = '0';  
+         pc.printf("\n\r%s\n\r", cmd);
+        }    
     }
-    
-  /*  pc.baud(9600);                  //set baud rate
-    pc.format(8, MySerial::None, 1);//set bits for a byte, parity bit, stop bit
-    pc.SetRxWait(0.01, 0.001);       //set wait getting chars after interrupted, each char
-    pc.attach( readbuf, MySerial::RxIrq );    //Set Interrupt by Serial receive
-    
-    //pc.printf(" target from input input: %s \n\r" , target_revolutions) ;
-    pc.printf("input %s \n\r" , cWord) ;*/
-    
-    
-    
-    }
-    
 }
  

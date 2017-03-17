@@ -118,7 +118,7 @@ inline int8_t readRotorState(){
 int8_t motorHome() {
     //Put the motor in drive state 0 and wait for it to stabilise
     motorOut(0);
-    wait(1.0);
+    wait(3.0);
     
     //Get the rotor state
     return readRotorState();
@@ -130,7 +130,6 @@ int8_t motorHome() {
     
 volatile int8_t intState;
 Ticker photo_checker_interrupt;
-Timer timer;
 
 void check_photo() 
 {
@@ -138,43 +137,63 @@ void check_photo()
 }
 
 
+InterruptIn photointerrupter(D12);
+double time_passed = 0;
+Timer timer;
+double revolutions = 0;
+uint32_t reference_time = 0;
+double ang_velocity = 0;
+
+void increment_revolutions()
+{
+    revolutions++;
+    
+    // Calculate time for previous revolution
+    double current_time = (double)timer.read_us();
+    time_passed = current_time - reference_time;
+    
+    ang_velocity = 1000000.0/time_passed;
+    reference_time = current_time;
+}
 
 /*************************************
              Threads
 *************************************/ 
 
-/* PID */
-
-Thread th_pid(osPriorityNormal, 2048);
-Timer pid_timer;
-
-double kp = 0.1;
-double ki = 0.0;
-double kd = 10000000000;
-
-double target_ang_velocity = 100.0; // Revolutions per second
-double target_time_period = 1000000.0/target_ang_velocity; // 1000000 us
-double target_revolutions = 100;
-
-double revolutions = 0;
-
+/* 
+ * PID 
+ */
+ 
 double wait_time = 1.0; // us
-double time_passed = 0;
+
 
 double prev_error = 0;
 uint64_t prev_time = 0;
+ 
+//PID revolutions
+ 
+Thread th_pid_rev(osPriorityNormal, 2048);
+Timer pid_timer_rev;
 
-int8_t changed_intState;
-int8_t orState;
+double kp_rev = 0.1;
+double ki_rev = 0.0;
+double kd_rev = 10000000000;
 
-void pid()
+
+double target_revolutions = 100;
+
+
+
+
+
+void pid_rev()
 {
     while(true)
     {
         //pc.printf("PID \n\r");
         
         // Get time since last PID
-        uint64_t time = pid_timer.read_us();
+        uint64_t time = pid_timer_rev.read_us();
         uint64_t time_since_last_pid = time - prev_time;
     
         // Calculate errors
@@ -183,7 +202,7 @@ void pid()
         double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000); // Derivative
         
         // Weight errors to calculate output
-        double output = kp*error + ki*error_sum + kd*error_deriv;
+        double output = kp_rev*error + ki_rev*error_sum + kd_rev*error_deriv;
         
         // Lower limit output to small non-zero value to avoid divby0 error
         double output_angular_velocity = (output > 0) ? output : 0.00000000000001; 
@@ -200,18 +219,73 @@ void pid()
     }
 }
 
+//PID velocity 
+
+Thread th_pid_vel(osPriorityNormal, 2048);
+Timer pid_timer_vel;
+
+double kp_vel = 10.0;
+double ki_vel = 0.0;
+double kd_vel = 0.0;
+
+
+double target_ang_velocity = 25.0; // Revolutions per second
+
+
+
+void pid_vel()
+{
+    while(true)
+    {
+        //pc.printf("PID \n\r");
+       
+        // Get time since last PID
+        uint64_t time = pid_timer_vel.read_us();
+        uint64_t time_since_last_pid = time - prev_time;
+    
+        // Calculate errors
+        double error = target_ang_velocity - ang_velocity   ; // Proportional
+        double error_sum = error * (double)time_since_last_pid; // Integral
+        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000); // Derivative
+        
+        // Weight errors to calculate output
+        double output = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
+        
+        
+        // Lower limit output to small non-zero value to avoid divby0 error
+        double output_angular_velocity = (output > 0) ? output : 0.00000000000001; 
+        
+        //Change angular velocity by changing wait time
+        wait_time = 1000000.0/((output_angular_velocity)*6.0);
+        
+        
+        // Store values for next iteration
+        prev_error = error;
+        prev_time = time;
+        
+        //Debugging
+        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, wait_time, output_angular_velocity, error_deriv);
+        
+        Thread::wait(100); // ms    
+    }
+}
 
 
 /* Motor Control */
 
 Thread th_motor_control(osPriorityNormal, 1024);
 
+int8_t changed_intState;
+int8_t orState;
+
 void move_field()
 {
     while(true)
     {
-        Thread::wait(wait_time/1000.0);  
+        //pc.printf("%f\n\r", wait_time);
         motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive 
+        Thread::wait(wait_time/1000.0);  
+        
     }
 }
 
@@ -227,8 +301,9 @@ int main()
     int8_t intStateOld = 0;
     intState = orState;
     changed_intState = orState;
-    uint32_t reference_time = 0;
-    //new_state = true;
+    
+
+
     
     pc.printf("Hello\n\r");
     pc.printf("Rotor origin: %x\n\r",orState);
@@ -237,45 +312,34 @@ int main()
 
     /* Start Timers */
     timer.start();
-    pid_timer.start();
-    
+    //pid_timer_rev.start();
+    pid_timer_vel.start();
+     
     /* Start Interrupts */
     photo_checker_interrupt.attach(&check_photo, 0.0001);
+    photointerrupter.rise(&increment_revolutions);
     
     /* Start Threads */
-    th_pid.start(&pid);
+    //th_pid_rev.start(&pid_rev);
+    th_pid_vel.start(&pid_vel);
     th_motor_control.start(&move_field);
     
     
+    
+    pc.printf("1: %f\n\r", ang_velocity);
     while (true) 
     {        
-        pc.printf("%f\n\r", revolutions);
-        
-        int8_t local_intState = intState;
-        if (local_intState != intStateOld) 
-        {
-            //new_state = true;
-            //changed_intState = local_intState;
-            if(local_intState == orState)
-            {
-               revolutions++;
-            
-               // Calculate time for previous revolution
-               double current_time = (double)timer.read_us();
-               time_passed = current_time - reference_time;
-
-               reference_time = current_time;
-            }
-            
-            
-            intStateOld = local_intState;            
-        }
+        pc.printf("%f, %f\n\r", ang_velocity, revolutions);
+        //pc.printf("%f\n\r", revolutions);
+        //pc.printf("%f \n\r", ang_velocity);
+      
         
         // On keypress read in chars and put into string to be processed into commands
         if(pc.readable())
         {     
             unsigned index = 0; 
-            char cmd[20];
+            unsigned size = 20;
+            char cmd[size];
             char ch;
             
             while(ch != '\r')
@@ -283,9 +347,18 @@ int main()
                 ch = pc.getc();
                 
                 if(ch == 'R')
-                {  
+                {
+                    bool negative = false;
+                    ch = pc.getc();
+                    if(ch == '-')
+                    {
+                        negative = true;
+                    }
                     
                 }
+                
+                else if (ch == 'V')
+                
                 cmd[index++] = ch - '0';
                 pc.printf("%c",ch);    
             }

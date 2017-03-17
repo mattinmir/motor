@@ -5,6 +5,7 @@
 #include <limits>
 #include <algorithm>
 #include <RawSerial.h>
+#include <cmath>
 
 //Photointerrupter input pins
 #define I1pin D2
@@ -224,12 +225,12 @@ void pid_rev()
 Thread th_pid_vel(osPriorityNormal, 2048);
 Timer pid_timer_vel;
 
-double kp_vel = 10.0;
-double ki_vel = 0.0;
-double kd_vel = 0.0;
+double kp_vel = 5.0;
+double ki_vel = 0.0000001;
+double kd_vel = 0.00000;
 
 
-double target_ang_velocity = 25.0; // Revolutions per second
+double target_ang_velocity = 15.0; // Revolutions per second
 
 
 
@@ -289,7 +290,29 @@ void move_field()
     }
 }
 
+/*************************************
+             Utility
+*************************************/ 
 
+double str2dbl(char* chars, unsigned size, bool fractional)
+{
+    double result = 0;
+    
+    for (unsigned i = 0; i < size; i++)
+    {
+        if (fractional)
+        {
+            result += (chars[i] - '0') * pow(10,(-i)-1);
+        }
+        else
+        {
+            result += (chars[i] - '0') * pow(10,i);
+        }
+    }
+    
+    return result;
+}
+    
 
 /*************************************
                 Main
@@ -329,7 +352,7 @@ int main()
     pc.printf("1: %f\n\r", ang_velocity);
     while (true) 
     {        
-        pc.printf("%f, %f\n\r", ang_velocity, revolutions);
+        //pc.printf("%f, %f\n\r", ang_velocity, revolutions);
         //pc.printf("%f\n\r", revolutions);
         //pc.printf("%f \n\r", ang_velocity);
       
@@ -350,9 +373,19 @@ int main()
                 {
                     bool negative = false;
                     ch = pc.getc();
+                    
                     if(ch == '-')
                     {
                         negative = true;
+                    }
+                    
+                    else
+                    {    
+                        unsigned digits[3];
+                        while (ch != '.')
+                        {
+                            ch.
+                        }
                     }
                     
                 }
@@ -368,4 +401,3 @@ int main()
         }    
     }
 }
- 

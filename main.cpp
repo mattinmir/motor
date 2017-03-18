@@ -52,9 +52,7 @@ typedef enum
 
 
 
-//Initialise the serial port
-//Serial pc(SERIAL_TX, SERIAL_RX);
-RawSerial pc(USBTX,USBRX);
+
 
 double dbl_max = std::numeric_limits<double>::max();
 
@@ -124,175 +122,86 @@ int8_t motorHome() {
     //Get the rotor state
     return readRotorState();
 }
+
+
+//Initialise the serial port
+//Serial pc(SERIAL_TX, SERIAL_RX);
+RawSerial pc(USBTX,USBRX);
+
     
 /*************************************
              Interrupts
-*************************************/  
+*************************************/ 
     
 /* Read Photointerrupters */
+void check_photo();
 
-volatile int8_t intState;
 Ticker photo_checker_interrupt;
-
-void check_photo() 
-{
-    intState = readRotorState(); 
-}
+volatile int8_t intState;
+    
 
 /* Count Revolutions */
+void increment_revolutions();
 
 InterruptIn photointerrupter(D12);
+Timer rev_count_timer;
 double time_passed = 0;
-Timer timer;
 double revolutions = 0;
 uint32_t reference_time = 0;
 double ang_velocity = 0;
 
-void increment_revolutions()
-{
-    revolutions++;
-    
-    // Calculate time for previous revolution
-    double current_time = (double)timer.read_us();
-    time_passed = current_time - reference_time;
-    
-    ang_velocity = 1000000.0/time_passed;
-    reference_time = current_time;
-}
+
 
 /*************************************
              Threads
 *************************************/ 
 
 
-
-double wait_time = 10; // us
+// General Global Variables
+double wait_time; 
 double prev_error = 0;
 uint64_t prev_time = 0;
  
-/*                 */
+
 /* PID Revolutions */
-/*                 */
+void pid_rev();
  
 Thread* th_pid_rev;
 Timer pid_timer_rev;
-
-double kp_rev = 0.1;
-double ki_rev = 0.0;
-double kd_rev = 10000000000;
-
-
-double target_revolutions = 100;
+double target_revolutions;
+double max_ang_velocity = 100000;
+double kp_rev;
+double ki_rev;
+double kd_rev;
 
 
-
-
-
-void pid_rev()
-{
-    while(true)
-    {
-        //pc.printf("PID \n\r");
-        
-        // Get time since last PID
-        uint64_t time = pid_timer_rev.read_us();
-        uint64_t time_since_last_pid = time - prev_time;
-    
-        // Calculate errors
-        double error = target_revolutions - revolutions   ; // Proportional
-        double error_sum = error * (double)time_since_last_pid; // Integral
-        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000); // Derivative
-        
-        // Weight errors to calculate output
-        double output = kp_rev*error + ki_rev*error_sum + kd_rev*error_deriv;
-        
-        // Lower limit output to small non-zero value to avoid divby0 error
-        double output_angular_velocity = (output > 0) ? output : 0.00000000000001; 
-        wait_time = 1000000.0/((output_angular_velocity)*6.0);
-        
-        
-        // Store values for next iteration
-        prev_error = error;
-        prev_time = time;
-        
-        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, wait_time, output_angular_velocity, error_deriv);
-        
-        Thread::wait(100); // ms    
-    }
-}
-
-/*                  */
 /*   PID Velocity   */
-/*                  */ 
+void pid_vel();
 
 Thread* th_pid_vel;
 Timer pid_timer_vel;
+double target_ang_velocity; 
+double kp_vel;
+double ki_vel;
+double kd_vel;
 
-double kp_vel = 6.0;
-double ki_vel = 0.00000;
-double kd_vel = 0.0;
-
-
-double target_ang_velocity = 15.0; // Revolutions per second
-
-
-
-void pid_vel()
-{
-    while(true)
-    {
-        //pc.printf("PID \n\r");
-       
-        // Get time since last PID
-        uint64_t time = pid_timer_vel.read_us();
-        uint64_t time_since_last_pid = time - prev_time;
-    
-        // Calculate errors
-        double error = target_ang_velocity - ang_velocity   ; // Proportional
-        double error_sum = error * (double)time_since_last_pid; // Integral
-        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000.0); // Derivative
-        
-        // Weight errors to calculate output
-        double output = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
-        
-        
-        // Lower limit output to small non-zero value to avoid divby0 error
-        double output_angular_velocity = (output > 0) ? output : 0.00000001; 
-        
-        //Change angular velocity by changing wait time
-        wait_time = 1000000.0/((output_angular_velocity)*6.0);
-        
-        
-        // Store values for next iteration
-        prev_error = error;
-        prev_time = time;
-        
-        //Debugging
-        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, error_sum, error_deriv, wait_time);
-        
-        Thread::wait(100); // ms    
-    }
-}
 
 
 /* Motor Control */
+void move_field();
 
 Thread* th_motor_control;
-
-int8_t changed_intState;
 int8_t orState;
 
-void move_field()
-{
-    while(true)
-    {
-        //pc.printf("%f\n\r", wait_time);
-        motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive 
-        Thread::wait(wait_time/1000.0);  
-        
-    }
-}
 
+
+
+/*************************************
+                Utility
+*************************************/
+
+/* Terminate, delete, & respawn threads */
+void reset_threads();
 
 
 /*************************************
@@ -303,20 +212,30 @@ int main()
 {
     orState = motorHome();
     intState = orState;
-    changed_intState = orState;
-    
-    char notes[32][2];
-
 
     
-    pc.printf("Hello\n\r");
-    
+    char notes[32][2]; // For Melody
 
+    pc.printf("Hello\n\rEnter command to begin.\n\r");
     
+    /* PID Tuning */
+    
+    // pid_vel
+    kp_vel = 6.0;
+    ki_vel = 0.00000;
+    kd_vel = 0.0;
+    
+    // pid_rev  
+    kp_rev = 0.2;
+    ki_rev = 0.0;
+    kd_rev = 0.9;
+    
+    // Initial Wait Time
+    wait_time = 100; // us
 
     /* Start Timers */
-    timer.start();
-    //pid_timer_rev.start();
+    rev_count_timer.start();
+    pid_timer_rev.start();
     pid_timer_vel.start();
      
     /* Start Interrupts */
@@ -328,11 +247,6 @@ int main()
     th_pid_vel = new Thread(osPriorityNormal, 2048);
     th_motor_control = new Thread(osPriorityNormal, 1024);
     
-    
-    
-    
-    
-
     while (true) 
     {        
         //pc.printf("%f, %f\n\r", ang_velocity, revolutions);
@@ -349,7 +263,7 @@ int main()
             char cmd[size];
             char ch = ' ';
             
-
+            // Read in entire command into `cmd`
             while(ch != '\r')
             {           
                 ch = pc.getc();
@@ -368,62 +282,79 @@ int main()
             }
 
 
-            
+            // Set target revolutions
             if (cmd[0] == 'R')
             {
                 char* next_cmd;
                 
-                //pc.printf("R: %f\n\r",strtod(cmd+1, &next_cmd));
+                // Read revolution target and convert to double
                 target_revolutions = strtod(cmd+1, &next_cmd);
                 
+                // Set max velocity
                 if(*next_cmd == 'V')
                 {
-                    pc.printf("V: %f\n\r",strtod(next_cmd+1, NULL));
-                    //target_ang_velocity = strtod(next_cmd+1, NULL);
+                    // abs() to ignore sign
+                    max_ang_velocity = abs(strtod(next_cmd+1, NULL));
+                    
+                    // Terminate and recreate Thread objects
+                    reset_threads();
+                    
+                    // Reset count & wait time
+                    revolutions = 0;
+                    wait_time = 100;
+                    
+                    pc.printf("Target revolutions is %f revs\n\rMax velocity is %f\n\r",target_revolutions, max_ang_velocity);
+                    
+                    // Respawn threads
+                    th_motor_control->start(&move_field);
+                    th_pid_rev->start(&pid_rev);
+                    
                 }
+                
+                // If no velocity given
                 else
                 {
-                    th_pid_vel->terminate();
-                    th_pid_rev->terminate();
-                    th_motor_control->terminate();
+                    // Terminate and recreate Thread objects
+                    reset_threads();
                     
-                    delete th_pid_vel;
-                    delete th_pid_rev;
-                    delete th_motor_control;
-                    
-                    th_pid_rev= new Thread(osPriorityNormal, 2048);
-                    th_pid_vel = new Thread(osPriorityNormal, 2048);
-                    th_motor_control = new Thread(osPriorityNormal, 1024);
-                    
+                    // Reset count & wait time
                     revolutions = 0;
-                    th_pid_rev->start(&pid_rev);
-                    th_motor_control->start(&move_field);
+                    wait_time = 100;
+                    
+                    // No velocity limit given so set very high
+                    max_ang_velocity = 100000;
+                    
                     pc.printf("Target revolutions is %f revs\n\r",target_revolutions);
+                    
+                    // Respawn threads
+                    th_motor_control->start(&move_field);
+                    th_pid_rev->start(&pid_rev);
+
+                    
                 }
             }
             
+            // Set target velocity
             else if (cmd[0] == 'V')
             {
                 //pc.printf("V: %f\n\r",strtod(cmd+1, NULL));
                 target_ang_velocity = strtod(cmd+1, NULL);
                 
-                th_pid_vel->terminate();
-                th_pid_rev->terminate();
-                th_motor_control->terminate();
+                // Terminate and recreate Thread objects
+                reset_threads();
+
+                // Reset wait time
+                wait_time = 100;
                 
-                delete th_pid_vel;
-                delete th_pid_rev;
-                delete th_motor_control;
-                
-                th_pid_rev= new Thread(osPriorityNormal, 2048);
-                th_pid_vel = new Thread(osPriorityNormal, 2048);
-                th_motor_control = new Thread(osPriorityNormal, 1024);
-                
-                th_pid_vel->start(&pid_vel);
-                th_motor_control->start(&move_field);
                 pc.printf("Target velocity is %f rev/s\n\r",target_ang_velocity);
+                
+                // Respawn threads
+                th_motor_control->start(&move_field);
+                th_pid_vel->start(&pid_vel);
+                
             }
             
+            // Melody
             else if (cmd[0] == 'T')
             {
                       
@@ -433,3 +364,125 @@ int main()
     }
 }
  
+ 
+ void check_photo() 
+{
+    intState = readRotorState(); 
+}
+
+void increment_revolutions()
+{
+    revolutions++;
+    
+    // Calculate time for previous revolution
+    double current_time = (double)rev_count_timer.read_us();
+    time_passed = current_time - reference_time;
+    
+    ang_velocity = 1000000.0/time_passed;
+    reference_time = current_time;
+}
+
+
+void pid_rev()
+{
+
+    while(true)
+    {
+       
+        //pc.printf("PID \n\r");
+        
+        // Get time since last PID
+        uint64_t time = pid_timer_rev.read_us();
+        uint64_t time_since_last_pid = time - prev_time;
+    
+        // Calculate errors
+        double error = target_revolutions - revolutions   ; // Proportional
+        double error_sum = error * (double)time_since_last_pid; // Integral
+        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000); // Derivative
+        
+        // Weight errors to calculate output
+        double output = kp_rev*error + ki_rev*error_sum + kd_rev*error_deriv;
+
+        // Lower limit output to small non-zero value to avoid divby0 error
+        double output_angular_velocity = (output > 0) ? output : 0.00000001; 
+
+        // Cap at max velocity
+        output_angular_velocity = (output_angular_velocity < max_ang_velocity) ? output_angular_velocity : max_ang_velocity;
+
+        // Convert velocity to wait time
+        wait_time = 1000000.0/((output_angular_velocity)*6.0);
+
+        
+        // Store values for next iteration
+        prev_error = error;
+        prev_time = time;
+
+        pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, error_deriv, max_ang_velocity, ang_velocity);
+
+        Thread::wait(100); // ms    
+    }
+}
+
+void pid_vel()
+{
+    while(true)
+    {       
+        // Get time since last PID
+        uint64_t time = pid_timer_vel.read_us();
+        uint64_t time_since_last_pid = time - prev_time;
+    
+        // Calculate errors
+        double error = target_ang_velocity - ang_velocity   ; // Proportional
+        double error_sum = error * (double)time_since_last_pid; // Integral
+        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000.0); // Derivative
+        
+        // Weight errors to calculate output
+        double output = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
+        
+        // Lower limit output to small non-zero value to avoid divby0 error
+        double output_angular_velocity = (output > 0) ? output : 0.00000001; 
+        
+        // Convert velocity to wait time
+        wait_time = 1000000.0/((output_angular_velocity)*6.0);
+        
+        
+        // Store values for next iteration
+        prev_error = error;
+        prev_time = time;
+        
+        //Debugging
+        pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, error_sum, error_deriv, wait_time);
+        
+        Thread::wait(100); // ms    
+    }
+}
+
+void move_field()
+{
+    while(true)
+    {
+        //pc.printf("%f\n\r", wait_time);
+        motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive 
+        Thread::wait(wait_time/1000.0);  
+        
+    }
+}
+
+
+void reset_threads()
+{
+    th_pid_vel->terminate();
+    th_pid_rev->terminate();
+    th_motor_control->terminate();
+    
+    delete th_pid_vel;
+    delete th_pid_rev;
+    delete th_motor_control;
+    
+    th_pid_rev = new Thread(osPriorityNormal, 2048);
+    th_pid_vel = new Thread(osPriorityNormal, 2048);
+    th_motor_control = new Thread(osPriorityNormal, 1024);
+}
+
+
+

@@ -166,7 +166,7 @@ void increment_revolutions()
 
 
 
-double wait_time = 1.0; // us
+double wait_time = 10; // us
 double prev_error = 0;
 uint64_t prev_time = 0;
  
@@ -174,7 +174,7 @@ uint64_t prev_time = 0;
 /* PID Revolutions */
 /*                 */
  
-Thread th_pid_rev(osPriorityNormal, 2048);
+Thread* th_pid_rev;
 Timer pid_timer_rev;
 
 double kp_rev = 0.1;
@@ -225,11 +225,11 @@ void pid_rev()
 /*   PID Velocity   */
 /*                  */ 
 
-Thread th_pid_vel(osPriorityNormal, 2048);
+Thread* th_pid_vel;
 Timer pid_timer_vel;
 
 double kp_vel = 6.0;
-double ki_vel = 0.00004;
+double ki_vel = 0.00000;
 double kd_vel = 0.0;
 
 
@@ -257,7 +257,7 @@ void pid_vel()
         
         
         // Lower limit output to small non-zero value to avoid divby0 error
-        double output_angular_velocity = (output > 0) ? output : 0.00000000000001; 
+        double output_angular_velocity = (output > 0) ? output : 0.00000001; 
         
         //Change angular velocity by changing wait time
         wait_time = 1000000.0/((output_angular_velocity)*6.0);
@@ -268,7 +268,7 @@ void pid_vel()
         prev_time = time;
         
         //Debugging
-        pc.printf("%f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, error_sum, error_deriv);
+        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, error_sum, error_deriv, wait_time);
         
         Thread::wait(100); // ms    
     }
@@ -277,7 +277,7 @@ void pid_vel()
 
 /* Motor Control */
 
-Thread th_motor_control(osPriorityNormal, 1024);
+Thread* th_motor_control;
 
 int8_t changed_intState;
 int8_t orState;
@@ -310,7 +310,7 @@ int main()
 
     
     pc.printf("Hello\n\r");
-    pc.printf("Target velocity %f\n\r",target_ang_velocity);
+    
 
     
 
@@ -323,10 +323,13 @@ int main()
     photo_checker_interrupt.attach(&check_photo, 0.0001);
     photointerrupter.rise(&increment_revolutions);
     
-    /* Start Threads */
-    //th_pid_rev.start(&pid_rev);
-    th_pid_vel.start(&pid_vel);
-    th_motor_control.start(&move_field);
+    /* Create Threads */
+    th_pid_rev = new Thread(osPriorityNormal, 2048);
+    th_pid_vel = new Thread(osPriorityNormal, 2048);
+    th_motor_control = new Thread(osPriorityNormal, 1024);
+    
+    
+    
     
     
 
@@ -334,7 +337,7 @@ int main()
     {        
         //pc.printf("%f, %f\n\r", ang_velocity, revolutions);
         //pc.printf("%f\n\r", revolutions);
-        //pc.printf("%f, %f \n\r", target_ang_velocity, ang_velocity);
+        //pc.printf("%f, %f, %f\n\r", target_ang_velocity, ang_velocity, wait_time);
       
         
         // On keypress read in chars and put into string to be processed into commands
@@ -350,8 +353,18 @@ int main()
             while(ch != '\r')
             {           
                 ch = pc.getc();
-                cmd[index++] = ch;
-                pc.printf("%c", ch);
+                
+                //Detect backspace
+                if(ch == 127 && index > 0)
+                {
+                    index--;
+                    pc.printf("\b");    
+                }
+                else
+                {
+                    cmd[index++] = ch;
+                    pc.printf("%c", ch);
+                }
             }
 
 
@@ -360,13 +373,32 @@ int main()
             {
                 char* next_cmd;
                 
-                pc.printf("R: %f\n\r",strtod(cmd+1, &next_cmd));
-                //target_rotations = strtod(cmd+1, &next_cmd);
+                //pc.printf("R: %f\n\r",strtod(cmd+1, &next_cmd));
+                target_revolutions = strtod(cmd+1, &next_cmd);
                 
                 if(*next_cmd == 'V')
                 {
                     pc.printf("V: %f\n\r",strtod(next_cmd+1, NULL));
                     //target_ang_velocity = strtod(next_cmd+1, NULL);
+                }
+                else
+                {
+                    th_pid_vel->terminate();
+                    th_pid_rev->terminate();
+                    th_motor_control->terminate();
+                    
+                    delete th_pid_vel;
+                    delete th_pid_rev;
+                    delete th_motor_control;
+                    
+                    th_pid_rev= new Thread(osPriorityNormal, 2048);
+                    th_pid_vel = new Thread(osPriorityNormal, 2048);
+                    th_motor_control = new Thread(osPriorityNormal, 1024);
+                    
+                    revolutions = 0;
+                    th_pid_rev->start(&pid_rev);
+                    th_motor_control->start(&move_field);
+                    pc.printf("Target revolutions is %f revs\n\r",target_revolutions);
                 }
             }
             
@@ -374,6 +406,22 @@ int main()
             {
                 //pc.printf("V: %f\n\r",strtod(cmd+1, NULL));
                 target_ang_velocity = strtod(cmd+1, NULL);
+                
+                th_pid_vel->terminate();
+                th_pid_rev->terminate();
+                th_motor_control->terminate();
+                
+                delete th_pid_vel;
+                delete th_pid_rev;
+                delete th_motor_control;
+                
+                th_pid_rev= new Thread(osPriorityNormal, 2048);
+                th_pid_vel = new Thread(osPriorityNormal, 2048);
+                th_motor_control = new Thread(osPriorityNormal, 1024);
+                
+                th_pid_vel->start(&pid_vel);
+                th_motor_control->start(&move_field);
+                pc.printf("Target velocity is %f rev/s\n\r",target_ang_velocity);
             }
             
             else if (cmd[0] == 'T')

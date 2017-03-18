@@ -5,7 +5,7 @@
 #include <limits>
 #include <algorithm>
 #include <RawSerial.h>
-#include <cmath>
+#include <cstdlib>
 
 //Photointerrupter input pins
 #define I1pin D2
@@ -53,8 +53,8 @@ typedef enum
 
 
 //Initialise the serial port
-Serial pc(SERIAL_TX, SERIAL_RX);
-//rawSerial pc(USBTX,USBRX);
+//Serial pc(SERIAL_TX, SERIAL_RX);
+RawSerial pc(USBTX,USBRX);
 
 double dbl_max = std::numeric_limits<double>::max();
 
@@ -129,6 +129,8 @@ int8_t motorHome() {
              Interrupts
 *************************************/  
     
+/* Read Photointerrupters */
+
 volatile int8_t intState;
 Ticker photo_checker_interrupt;
 
@@ -137,6 +139,7 @@ void check_photo()
     intState = readRotorState(); 
 }
 
+/* Count Revolutions */
 
 InterruptIn photointerrupter(D12);
 double time_passed = 0;
@@ -161,17 +164,15 @@ void increment_revolutions()
              Threads
 *************************************/ 
 
-/* 
- * PID 
- */
- 
+
+
 double wait_time = 1.0; // us
-
-
 double prev_error = 0;
 uint64_t prev_time = 0;
  
-//PID revolutions
+/*                 */
+/* PID Revolutions */
+/*                 */
  
 Thread th_pid_rev(osPriorityNormal, 2048);
 Timer pid_timer_rev;
@@ -220,14 +221,16 @@ void pid_rev()
     }
 }
 
-//PID velocity 
+/*                  */
+/*   PID Velocity   */
+/*                  */ 
 
 Thread th_pid_vel(osPriorityNormal, 2048);
 Timer pid_timer_vel;
 
-double kp_vel = 5.0;
-double ki_vel = 0.0000001;
-double kd_vel = 0.00000;
+double kp_vel = 6.0;
+double ki_vel = 0.00004;
+double kd_vel = 0.0;
 
 
 double target_ang_velocity = 15.0; // Revolutions per second
@@ -247,7 +250,7 @@ void pid_vel()
         // Calculate errors
         double error = target_ang_velocity - ang_velocity   ; // Proportional
         double error_sum = error * (double)time_since_last_pid; // Integral
-        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000); // Derivative
+        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000.0); // Derivative
         
         // Weight errors to calculate output
         double output = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
@@ -265,7 +268,7 @@ void pid_vel()
         prev_time = time;
         
         //Debugging
-        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, wait_time, output_angular_velocity, error_deriv);
+        pc.printf("%f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, error_sum, error_deriv);
         
         Thread::wait(100); // ms    
     }
@@ -290,29 +293,7 @@ void move_field()
     }
 }
 
-/*************************************
-             Utility
-*************************************/ 
 
-double str2dbl(char* chars, unsigned size, bool fractional)
-{
-    double result = 0;
-    
-    for (unsigned i = 0; i < size; i++)
-    {
-        if (fractional)
-        {
-            result += (chars[i] - '0') * pow(10,(-i)-1);
-        }
-        else
-        {
-            result += (chars[i] - '0') * pow(10,i);
-        }
-    }
-    
-    return result;
-}
-    
 
 /*************************************
                 Main
@@ -321,15 +302,15 @@ double str2dbl(char* chars, unsigned size, bool fractional)
 int main() 
 {
     orState = motorHome();
-    int8_t intStateOld = 0;
     intState = orState;
     changed_intState = orState;
     
+    char notes[32][2];
 
 
     
     pc.printf("Hello\n\r");
-    pc.printf("Rotor origin: %x\n\r",orState);
+    pc.printf("Target velocity %f\n\r",target_ang_velocity);
 
     
 
@@ -348,56 +329,59 @@ int main()
     th_motor_control.start(&move_field);
     
     
-    
-    pc.printf("1: %f\n\r", ang_velocity);
+
     while (true) 
     {        
         //pc.printf("%f, %f\n\r", ang_velocity, revolutions);
         //pc.printf("%f\n\r", revolutions);
-        //pc.printf("%f \n\r", ang_velocity);
+        //pc.printf("%f, %f \n\r", target_ang_velocity, ang_velocity);
       
         
         // On keypress read in chars and put into string to be processed into commands
         if(pc.readable())
         {     
+
             unsigned index = 0; 
-            unsigned size = 20;
+            unsigned size = 32;
             char cmd[size];
-            char ch;
+            char ch = ' ';
             
+
             while(ch != '\r')
             {           
                 ch = pc.getc();
-                
-                if(ch == 'R')
-                {
-                    bool negative = false;
-                    ch = pc.getc();
-                    
-                    if(ch == '-')
-                    {
-                        negative = true;
-                    }
-                    
-                    else
-                    {    
-                        unsigned digits[3];
-                        while (ch != '.')
-                        {
-                            ch.
-                        }
-                    }
-                    
-                }
-                
-                else if (ch == 'V')
-                
-                cmd[index++] = ch - '0';
-                pc.printf("%c",ch);    
+                cmd[index++] = ch;
+                pc.printf("%c", ch);
             }
-         //target_revolutions = 100*input[0] + 10*input[1] + input[2] ; 
-         //ch = '0';  
-         pc.printf("\n\r%s\n\r", cmd);
+
+
+            
+            if (cmd[0] == 'R')
+            {
+                char* next_cmd;
+                
+                pc.printf("R: %f\n\r",strtod(cmd+1, &next_cmd));
+                //target_rotations = strtod(cmd+1, &next_cmd);
+                
+                if(*next_cmd == 'V')
+                {
+                    pc.printf("V: %f\n\r",strtod(next_cmd+1, NULL));
+                    //target_ang_velocity = strtod(next_cmd+1, NULL);
+                }
+            }
+            
+            else if (cmd[0] == 'V')
+            {
+                //pc.printf("V: %f\n\r",strtod(cmd+1, NULL));
+                target_ang_velocity = strtod(cmd+1, NULL);
+            }
+            
+            else if (cmd[0] == 'T')
+            {
+                      
+            }
+
         }    
     }
 }
+ 

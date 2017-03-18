@@ -360,7 +360,8 @@ int main()
                       
             }
 
-        }    
+        }
+     Thread::wait(200);
     }
 }
  

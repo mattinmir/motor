@@ -114,23 +114,41 @@ void motorOut(int8_t driveState){
 inline int8_t readRotorState(){
     return stateMap[I1 + 2*I2 + 4*I3];
     }
+    
+
+//Initialise the serial port
+//Serial pc(SERIAL_TX, SERIAL_RX);
+RawSerial pc(USBTX,USBRX);    
+    
  
-//Basic synchronisation routine    
+//Basic synchronisation routine  -- improved to set to 0 before next command  
 int8_t motorHome() {
     //Put the motor in drive state 0 and wait for it to stabilise
     motorOut(0);
     
+    int two_prev_state = -2;                        // states needed to determine when motor has stopped spinning
+    int prev_state = -1;
+    int current_state = readRotorState();
+    int going = 1 ;   
     
-    wait(3.0);
-    
+    while(going==1){
+        if( !(current_state == prev_state && current_state == two_prev_state))  // while the states are still changing, keep shifting to the next state to compare
+        {
+            two_prev_state = prev_state;
+            prev_state = current_state ;
+            current_state = readRotorState();
+            wait(0.3);                  // should be tuned
+        }
+        else
+        {
+            pc.printf("motor set to 0 \n\r");
+            going = 0;
+        }
+    }
     //Get the rotor state
+    //pc.printf("out of motorhome");
     return readRotorState();
 }
-
-
-//Initialise the serial port
-//Serial pc(SERIAL_TX, SERIAL_RX);
-RawSerial pc(USBTX,USBRX);
 
     
 /*************************************
@@ -230,8 +248,6 @@ int main()
 
     pc.printf("Hello\n\rEnter command to begin.\n\r");
     
-    pc.printf("state tracking [ %d ,%d,%d,%d,%d,%d ] \n\r" , states[0], states[1] , states[2] , states[3] ,states[4] , states[5]) ;
-    
     /* PID Tuning */
     
     // pid_vel
@@ -297,8 +313,9 @@ int main()
                     pc.printf("%c", ch);
                 }
             }
+            reset_threads();
             motorHome();
-
+            
             // Set target revolutions
             if (cmd[0] == 'R')
             {
@@ -321,7 +338,7 @@ int main()
                     max_ang_velocity = abs(strtod(next_cmd+1, NULL));
                     
                     // Terminate and recreate Thread objects
-                    reset_threads();
+                    //reset_threads();
                     
                     // Reset count & wait time
                     revolutions = 0;
@@ -339,7 +356,7 @@ int main()
                 else
                 {
                     // Terminate and recreate Thread objects
-                    reset_threads();
+                    //reset_threads();
                     
                     // Reset count & wait time
                     revolutions = 0;
@@ -372,7 +389,7 @@ int main()
                     lead =2;
                 }
                 // Terminate and recreate Thread objects
-                reset_threads();
+                //reset_threads();
 
                 // Reset wait time
                 wait_time = 100;
@@ -392,8 +409,7 @@ int main()
             }
 
         }
-        
-     pc.printf("state tracking at end [ %d ,%d,%d,%d,%d,%d ] \n\r" , states[0], states[1] , states[2] , states[3] ,states[4] , states[5]) ;
+     //pc.printf("....intState:   %d  .... \n\r" , intState );
      Thread::wait(200);
     }
 }
@@ -409,11 +425,11 @@ int main()
     
    // if
     //pc.printf("state tracking [ %d ]" , states) ;
-    states[index_state] = intState ;
-    index_state++ ;
-    if (index_state == 6) {
-        index_state=0 ;
-    }
+    //states[index_state] = intState ;
+    //index_state++ ;
+    //if (index_state == 6) {
+     //   index_state=0 ;
+    //}
 }
 
 void increment_revolutions()
@@ -453,10 +469,10 @@ void pid_rev()
         
         delta = output/OGdelta;
     
-        if(delta>0.5) delta =0.5;
+        if(delta>1) delta =1;
         if(delta<0) delta =0;
  
-        pc.printf("%f,%f\n\r", delta, revolutions);
+        //pc.printf("%f,%f\n\r", delta, revolutions);
 
         
         // Lower limit output to small non-zero value to avoid divby0 error
@@ -510,7 +526,7 @@ void pid_vel()
         
         //Debugging
         //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, error_sum, error_deriv, wait_time);
-        
+        //pc.printf("ang vel: %f  \n\r" , ang_velocity );
         Thread::wait(100); // ms    
     }
 }
@@ -542,7 +558,5 @@ void reset_threads()
     th_pid_vel = new Thread(osPriorityNormal, 2048);
     th_motor_control = new Thread(osPriorityNormal, 1024);
 }
-
-
 
 

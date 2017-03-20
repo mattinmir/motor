@@ -49,13 +49,7 @@ typedef enum
 } osPriority;
 */
 
-
-
-
-
 double dbl_max = std::numeric_limits<double>::max();
-
-
 
 
 //Drive state to output table
@@ -173,8 +167,6 @@ uint32_t reference_time = 0;
 double ang_velocity = 0;
 
 
-
-
 /*************************************
              Threads
 *************************************/ 
@@ -184,15 +176,7 @@ double ang_velocity = 0;
 double wait_time; 
 double prev_error = 0;
 uint64_t prev_time = 0;
-
-
-int states[6] ;     //for direction
-int index_state = 0;
-
-   // int 2_prev_state = 0;  // 
-   // int prev_state = 0;
  
-
 /* PID Revolutions */
 void pid_rev();
  
@@ -216,13 +200,11 @@ double ki_vel;
 double kd_vel;
 
 
-
 /* Motor Control */
 void move_field();
 
 Thread* th_motor_control;
 int8_t orState;
-
 
 
 
@@ -417,19 +399,7 @@ int main()
  
  void check_photo() 
 {
-    //int two_prev_state = 0;   // put back here after printing is not needed
-    //int prev_state = 0;
-    
-    
     intState = readRotorState(); 
-    
-   // if
-    //pc.printf("state tracking [ %d ]" , states) ;
-    //states[index_state] = intState ;
-    //index_state++ ;
-    //if (index_state == 6) {
-     //   index_state=0 ;
-    //}
 }
 
 void increment_revolutions()
@@ -543,7 +513,6 @@ void move_field()
     }
 }
 
-
 void reset_threads()
 {
     th_pid_vel->terminate();
@@ -558,5 +527,3 @@ void reset_threads()
     th_pid_vel = new Thread(osPriorityNormal, 2048);
     th_motor_control = new Thread(osPriorityNormal, 1024);
 }
-
-

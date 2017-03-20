@@ -40,7 +40,6 @@ State   L1  L2  L3
 /*
 typedef enum 
 {
-
     osPriorityLow           = -2,
     osPriorityBelowNormal   = -1,
     osPriorityNormal        =  0,
@@ -67,7 +66,7 @@ const int8_t stateMap[] = {0x07,0x05,0x03,0x04,0x01,0x00,0x02,0x07};
 //const int8_t stateMap[] = {0x07,0x01,0x03,0x02,0x05,0x00,0x04,0x07}; //Alternative if phase order of input or drive is reversed
  
 //Phase lead to make motor spin
-const int8_t lead = -2;  //2 for forwards, -2 for backwards
+ int8_t lead = 2;  //2 for forwards, -2 for backwards  //
  
 //Status LED
 DigitalOut led1(LED1);
@@ -78,12 +77,15 @@ DigitalIn I2(I2pin);
 DigitalIn I3(I3pin);
  
 //Motor Drive outputs
-DigitalOut L1L(L1Lpin);
+PwmOut L1L(L1Lpin);
 DigitalOut L1H(L1Hpin);
-DigitalOut L2L(L2Lpin);
+PwmOut L2L(L2Lpin);
 DigitalOut L2H(L2Hpin);
-DigitalOut L3L(L3Lpin);
+PwmOut L3L(L3Lpin);
 DigitalOut L3H(L3Hpin);
+
+double delta = 1;
+double OGdelta =0;
  
 //Set a given drive state
 void motorOut(int8_t driveState){
@@ -100,11 +102,11 @@ void motorOut(int8_t driveState){
     if (~driveOut & 0x20) L3H = 1;
     
     //Then turn on
-    if (driveOut & 0x01) L1L = 1;
+    if (driveOut & 0x01) L1L = delta;
     if (driveOut & 0x02) L1H = 0;
-    if (driveOut & 0x04) L2L = 1;
+    if (driveOut & 0x04) L2L = delta;
     if (driveOut & 0x08) L2H = 0;
-    if (driveOut & 0x10) L3L = 1;
+    if (driveOut & 0x10) L3L = delta;
     if (driveOut & 0x20) L3H = 0;
     }
     
@@ -117,6 +119,8 @@ inline int8_t readRotorState(){
 int8_t motorHome() {
     //Put the motor in drive state 0 and wait for it to stabilise
     motorOut(0);
+    
+    
     wait(3.0);
     
     //Get the rotor state
@@ -152,6 +156,7 @@ double ang_velocity = 0;
 
 
 
+
 /*************************************
              Threads
 *************************************/ 
@@ -161,6 +166,13 @@ double ang_velocity = 0;
 double wait_time; 
 double prev_error = 0;
 uint64_t prev_time = 0;
+
+
+int states[6] ;     //for direction
+int index_state = 0;
+
+   // int 2_prev_state = 0;  // 
+   // int prev_state = 0;
  
 
 /* PID Revolutions */
@@ -218,17 +230,19 @@ int main()
 
     pc.printf("Hello\n\rEnter command to begin.\n\r");
     
+    pc.printf("state tracking [ %d ,%d,%d,%d,%d,%d ] \n\r" , states[0], states[1] , states[2] , states[3] ,states[4] , states[5]) ;
+    
     /* PID Tuning */
     
     // pid_vel
-    kp_vel = 6.0;
-    ki_vel = 0.00000;
+    kp_vel = 0.1;
+    ki_vel = 0.00;
     kd_vel = 0.0;
     
     // pid_rev  
-    kp_rev = 0.2;
-    ki_rev = 0.0;
-    kd_rev = 0.9;
+    kp_rev = 0.1;
+    ki_rev = 0;
+    kd_rev = 0;
     
     // Initial Wait Time
     wait_time = 100; // us
@@ -247,12 +261,15 @@ int main()
     th_pid_vel = new Thread(osPriorityNormal, 2048);
     th_motor_control = new Thread(osPriorityNormal, 1024);
     
+    
+    
     while (true) 
     {        
         //pc.printf("%f, %f\n\r", ang_velocity, revolutions);
         //pc.printf("%f\n\r", revolutions);
         //pc.printf("%f, %f, %f\n\r", target_ang_velocity, ang_velocity, wait_time);
       
+
         
         // On keypress read in chars and put into string to be processed into commands
         if(pc.readable())
@@ -280,7 +297,7 @@ int main()
                     pc.printf("%c", ch);
                 }
             }
-
+            motorHome();
 
             // Set target revolutions
             if (cmd[0] == 'R')
@@ -289,6 +306,13 @@ int main()
                 
                 // Read revolution target and convert to double
                 target_revolutions = strtod(cmd+1, &next_cmd);
+                if(target_revolutions < 0 ){
+                    lead = -2 ;
+                    target_revolutions = abs(target_revolutions) ;
+                }
+                else{
+                    lead = 2;
+                }
                 
                 // Set max velocity
                 if(*next_cmd == 'V')
@@ -339,7 +363,14 @@ int main()
             {
                 //pc.printf("V: %f\n\r",strtod(cmd+1, NULL));
                 target_ang_velocity = strtod(cmd+1, NULL);
-                
+                if(target_ang_velocity < 0){
+                    lead = -2 ;
+                    target_ang_velocity = abs(target_ang_velocity);
+                }
+                else
+                {
+                    lead =2;
+                }
                 // Terminate and recreate Thread objects
                 reset_threads();
 
@@ -361,6 +392,8 @@ int main()
             }
 
         }
+        
+     pc.printf("state tracking at end [ %d ,%d,%d,%d,%d,%d ] \n\r" , states[0], states[1] , states[2] , states[3] ,states[4] , states[5]) ;
      Thread::wait(200);
     }
 }
@@ -368,7 +401,19 @@ int main()
  
  void check_photo() 
 {
+    //int two_prev_state = 0;   // put back here after printing is not needed
+    //int prev_state = 0;
+    
+    
     intState = readRotorState(); 
+    
+   // if
+    //pc.printf("state tracking [ %d ]" , states) ;
+    states[index_state] = intState ;
+    index_state++ ;
+    if (index_state == 6) {
+        index_state=0 ;
+    }
 }
 
 void increment_revolutions()
@@ -403,22 +448,32 @@ void pid_rev()
         
         // Weight errors to calculate output
         double output = kp_rev*error + ki_rev*error_sum + kd_rev*error_deriv;
+        
+        if(OGdelta ==0) OGdelta = output;
+        
+        delta = output/OGdelta;
+    
+        if(delta>0.5) delta =0.5;
+        if(delta<0) delta =0;
+ 
+        pc.printf("%f,%f\n\r", delta, revolutions);
 
+        
         // Lower limit output to small non-zero value to avoid divby0 error
         double output_angular_velocity = (output > 0) ? output : 0.00000001; 
 
         // Cap at max velocity
-        output_angular_velocity = (output_angular_velocity < max_ang_velocity) ? output_angular_velocity : max_ang_velocity;
+        //output_angular_velocity = (output_angular_velocity < max_ang_velocity) ? output_angular_velocity : max_ang_velocity;
 
         // Convert velocity to wait time
-        wait_time = 1000000.0/((output_angular_velocity)*6.0);
+        //wait_time = 1000000.0/((output_angular_velocity)*6.0);
 
         
         // Store values for next iteration
         prev_error = error;
         prev_time = time;
 
-        pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, error_deriv, max_ang_velocity, ang_velocity);
+        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, error_deriv, max_ang_velocity, ang_velocity);
 
         Thread::wait(100); // ms    
     }
@@ -438,13 +493,15 @@ void pid_vel()
         double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000.0); // Derivative
         
         // Weight errors to calculate output
-        double output = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
+        //double output = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
+        delta = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
+        //pc.printf("%f\n\r", delta);
         
         // Lower limit output to small non-zero value to avoid divby0 error
-        double output_angular_velocity = (output > 0) ? output : 0.00000001; 
+       // double output_angular_velocity = (output > 0) ? output : 0.00000001; 
         
         // Convert velocity to wait time
-        wait_time = 1000000.0/((output_angular_velocity)*6.0);
+        //wait_time = 1000000.0/((output_angular_velocity)*6.0);
         
         
         // Store values for next iteration
@@ -452,7 +509,7 @@ void pid_vel()
         prev_time = time;
         
         //Debugging
-        pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, error_sum, error_deriv, wait_time);
+        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, error_sum, error_deriv, wait_time);
         
         Thread::wait(100); // ms    
     }
@@ -464,7 +521,8 @@ void move_field()
     {
         //pc.printf("%f\n\r", wait_time);
         motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive 
-        Thread::wait(wait_time/1000.0);  
+        //pc.printf("state:  %d \r\n" , states) ;
+        //Thread::wait(wait_time/1000.0);  
         
     }
 }
@@ -484,6 +542,7 @@ void reset_threads()
     th_pid_vel = new Thread(osPriorityNormal, 2048);
     th_motor_control = new Thread(osPriorityNormal, 1024);
 }
+
 
 
 

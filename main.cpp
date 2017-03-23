@@ -235,7 +235,7 @@ Thread* th_play_melody;
 std::map<std::string,double> notes;
 double melody[16][2];
 unsigned no_of_notes = 0;
-
+ 
 
 
 
@@ -245,14 +245,6 @@ unsigned no_of_notes = 0;
 
 /* Terminate, delete, & respawn threads */
 void reset_threads();
-
-
-//#define A 1
-//#define B 2 
-    
-    
-//double notes[4] = { 1 , 2 , 3 , 4 } ;
-
 
 
 /*************************************
@@ -282,7 +274,7 @@ int main()
     notes["B"] = 0.000253096f;
 
     
-  
+
     
     orState = motorHome();
     intState = orState;
@@ -327,9 +319,6 @@ int main()
     while (true) 
     {        
     
-
-        
-    
         //pc.printf("%f, %f\n\r", ang_velocity, revolutions);
         //pc.printf("%f\n\r", revolutions);
         //pc.printf("%f, %f, %f\n\r", target_ang_velocity, ang_velocity, wait_time);
@@ -366,6 +355,7 @@ int main()
                     pc.printf("%c", ch);
                 }
             }
+            pc.printf("after return");
             reset_threads();
             motorHome();
             
@@ -391,7 +381,7 @@ int main()
                     max_ang_velocity = abs(strtod(next_cmd+1, NULL));
                     
                     // Terminate and recreate Thread objects
-                    //reset_threads();
+                    reset_threads();
                     
                     // Reset count & wait time
                     revolutions = 0;
@@ -409,7 +399,7 @@ int main()
                 else
                 {
                     // Terminate and recreate Thread objects
-                    //reset_threads();
+                    reset_threads();
                     
                     // Reset count & wait time
                     revolutions = 0;
@@ -527,6 +517,7 @@ int main()
                 
              
             }
+            
             
 
         }
@@ -673,26 +664,40 @@ void play_melody()
          L3L.period(frequency);
          
          Thread::wait(melody[i][1]);
+         Thread::wait(100);
         }
     }
-}       
+}    
+  
 
 void reset_threads()
 {
     th_pid_vel->terminate();
     th_pid_rev->terminate();
     th_motor_control->terminate();
+    pc.printf(" 1.1 ");
     th_play_melody->terminate();
+    
+    
+    //th_pid_vel->join();
+    //th_pid_rev->join();
+    //th_motor_control->join();
+    //th_play_melody->terminate();
+    
+    
     
     delete th_pid_vel;
     delete th_pid_rev;
     delete th_motor_control;
+    pc.printf(" 2.1 ");
     delete th_play_melody;
+    
     
 
     th_pid_rev = new Thread(osPriorityNormal, 1024);
     th_pid_vel = new Thread(osPriorityNormal, 1024);
     th_motor_control = new Thread(osPriorityNormal, 1024);
+    pc.printf(" 3.1 ");
     th_play_melody = new Thread(osPriorityNormal, 1024);
-
+    
 }

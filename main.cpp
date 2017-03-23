@@ -1,12 +1,36 @@
 #include "mbed.h"
 #include "rtos.h"
-#include "PID.h"
+//#include "PID.h"
 #include "stdint.h"
 #include <limits>
 #include <algorithm>
 #include <RawSerial.h>
 #include <cstdlib>
+#include <string>
+#include <map>
+#include <vector>
 
+/*
+
+#define C 0.000477783f
+#define Cs 0.000450966f
+#define Db 0.000450966f
+#define D 0.000425655f
+#define Ds 0.000401765f
+#define Eb 0.000401765f
+#define E 0.000379216f
+#define F 0.000357932f
+#define Fs 0.000337842f
+#define Gb 0.000337842f
+#define G 0.000318882f
+#define Gs 0.000300984f
+#define Ab 0.000300984f
+#define A 0.000284091f
+#define As 0.000268146f
+#define Bb 0.000268146f
+#define B 0.000253096f
+
+*/
 //Photointerrupter input pins
 #define I1pin D2
 #define I2pin D11
@@ -216,31 +240,62 @@ int8_t orState;
 void reset_threads();
 
 
+//#define A 1
+//#define B 2 
+    
+    
+//double notes[4] = { 1 , 2 , 3 , 4 } ;
+
+
+
 /*************************************
                 Main
 *************************************/
 
 int main() 
 {
+    
+    std::map<std::string,double> notes;
+    notes["C"] = 0.000477783f;
+    notes["C#"] = 0.000450966f;
+    notes["D^"] = 0.000450966f;
+    notes["D"] = 0.000425655f;
+    notes["D#"] = 0.000401765f;
+    notes["E^"] = 0.000401765f;
+    notes["E"] = 0.000379216f;
+    notes["F"] = 0.000357932f;
+    notes["F^"] = 0.000337842f;
+    notes["G^"] = 0.000337842f;
+    notes["G"] = 0.000318882f;
+    notes["G#"] = 0.000300984f;
+    notes["A^"] = 0.000300984f;
+    notes["A"] = 0.000284091f;
+    notes["A#"] = 0.000268146f;
+    notes["B^"] = 0.000268146f;
+    notes["B"] = 0.000253096f;
+
+    std::vector< std::vector<double> > melody(16);
+    
+    
     orState = motorHome();
     intState = orState;
 
     
-    char notes[32][2]; // For Melody
+    
 
     pc.printf("Hello\n\rEnter command to begin.\n\r");
     
     /* PID Tuning */
     
-    // pid_vel
-    kp_vel = 0.1;
-    ki_vel = 0.00;
+    // pid_vel DO NOT CHANGE
+    kp_vel = 1.0;
+    ki_vel = 0.000001;
     kd_vel = 0.0;
     
     // pid_rev  
-    kp_rev = 0.1;
-    ki_rev = 0;
-    kd_rev = 0;
+    kp_rev = 0.2;
+    ki_rev = 0.0;
+    kd_rev = 1000000000.0;
     
     // Initial Wait Time
     wait_time = 100; // us
@@ -263,6 +318,12 @@ int main()
     
     while (true) 
     {        
+    
+        //L1L.period(G);
+        //L2L.period(G);
+        //L3L.period(G);
+        
+    
         //pc.printf("%f, %f\n\r", ang_velocity, revolutions);
         //pc.printf("%f\n\r", revolutions);
         //pc.printf("%f, %f, %f\n\r", target_ang_velocity, ang_velocity, wait_time);
@@ -273,9 +334,10 @@ int main()
         if(pc.readable())
         {     
 
-            unsigned index = 0; 
-            unsigned size = 32;
-            char cmd[size];
+            unsigned index = 0;
+            unsigned size = 0; 
+            unsigned max_size = 32;
+            char cmd[max_size];
             char ch = ' ';
             
             // Read in entire command into `cmd`
@@ -287,11 +349,14 @@ int main()
                 if(ch == 127 && index > 0)
                 {
                     index--;
-                    pc.printf("\b");    
+                    size--;
+                    pc.printf("\b");
+                        
                 }
                 else
                 {
                     cmd[index++] = ch;
+                    size++;
                     pc.printf("%c", ch);
                 }
             }
@@ -384,11 +449,59 @@ int main()
                 
             }
             
+            
             // Melody
             else if (cmd[0] == 'T')
             {
-                      
+                unsigned i = 1;
+                unsigned note = 0;
+                char pitch[2];
+                
+                // Repeat for every note given in command
+                while (i < size)
+                {
+                    pitch[0] = cmd[i++];
+                    pitch[1] = cmd[i++];
+                    
+                    // If not a sharp or flat
+                    // eg. pitch = ['A', '4']
+                    if(!(pitch[1] == '#' || pitch[1] == '^'))
+                    {
+                        // Convert char 'A' to std::string('A') and use to index `notes` map
+                        double frequency = notes[std::string(1, pitch[0])];
+                        // Convert char '4' to double 4.0
+                        double duration = strtod(pitch+1, NULL);
+                       
+                        melody[note].push_back(frequency);
+                        melody[note].push_back(duration);
+                        note++;
+                    }
+                    
+                    // If sharp or flat
+                    // eg. pitch = ['F', '#']
+                    else
+                    {
+                        // Convert char* ['F', '#'] to std::string("F#") and use to index `notes` map
+                        double frequency = notes[std::string(pitch, 2)];
+                        // Read in next char that is the duration and convert to double
+                        char dur[1];
+                        dur[0] = cmd[i++];
+                        double duration = strtod(dur, NULL);
+                        
+                        melody[note].push_back(frequency);
+                        melody[note].push_back(duration);
+                        note++;
+                    }
+                    
+                } 
+                
+                for (unsigned i = 0; i < melody.size(); i++)
+                {
+                    pc.printf("%f, %f",melody[i][0], melody[i][1]);
+                }
+                     
             }
+            
 
         }
      //pc.printf("....intState:   %d  .... \n\r" , intState );
@@ -422,7 +535,7 @@ void pid_rev()
     {
        
         //pc.printf("PID \n\r");
-        
+        delta = 1;
         // Get time since last PID
         uint64_t time = pid_timer_rev.read_us();
         uint64_t time_since_last_pid = time - prev_time;
@@ -430,29 +543,31 @@ void pid_rev()
         // Calculate errors
         double error = target_revolutions - revolutions   ; // Proportional
         double error_sum = error * (double)time_since_last_pid; // Integral
-        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000); // Derivative
+        double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000.0); // Derivative
         
         // Weight errors to calculate output
         double output = kp_rev*error + ki_rev*error_sum + kd_rev*error_deriv;
         
-        if(OGdelta ==0) OGdelta = output;
         
-        delta = output/OGdelta;
+        //if(OGdelta ==0) OGdelta = output;
+        
+        //delta = (output > 0) ? output : 0;
+        
+        //delta = output/OGdelta;
     
-        if(delta>1) delta =1;
-        if(delta<0) delta =0;
  
-        //pc.printf("%f,%f\n\r", delta, revolutions);
-
+    
         
         // Lower limit output to small non-zero value to avoid divby0 error
         double output_angular_velocity = (output > 0) ? output : 0.00000001; 
 
+        pc.printf("%f,%f\n\r", output_angular_velocity, revolutions);
+
         // Cap at max velocity
-        //output_angular_velocity = (output_angular_velocity < max_ang_velocity) ? output_angular_velocity : max_ang_velocity;
+        output_angular_velocity = (output_angular_velocity < max_ang_velocity) ? output_angular_velocity : max_ang_velocity;
 
         // Convert velocity to wait time
-        //wait_time = 1000000.0/((output_angular_velocity)*6.0);
+        wait_time = 1000000.0/((output_angular_velocity)*6.0);
 
         
         // Store values for next iteration
@@ -469,6 +584,7 @@ void pid_vel()
 {
     while(true)
     {       
+        wait_time = 0;
         // Get time since last PID
         uint64_t time = pid_timer_vel.read_us();
         uint64_t time_since_last_pid = time - prev_time;
@@ -481,6 +597,8 @@ void pid_vel()
         // Weight errors to calculate output
         //double output = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
         delta = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
+        
+        
         //pc.printf("%f\n\r", delta);
         
         // Lower limit output to small non-zero value to avoid divby0 error
@@ -508,7 +626,10 @@ void move_field()
         //pc.printf("%f\n\r", wait_time);
         motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive 
         //pc.printf("state:  %d \r\n" , states) ;
-        //Thread::wait(wait_time/1000.0);  
+        if(wait_time>0)
+        {
+        Thread::wait(wait_time/1000.0);  
+        }
         
     }
 }

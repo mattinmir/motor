@@ -1,6 +1,5 @@
 #include "mbed.h"
 #include "rtos.h"
-//#include "PID.h"
 #include "stdint.h"
 #include <limits>
 #include <algorithm>
@@ -9,6 +8,7 @@
 #include <string>
 #include <map>
 #include <vector>
+
 
 /*
 
@@ -159,7 +159,6 @@ int8_t motorHome() {
         }
         else
         {
-            pc.printf("motor set to 0 \n\r");
             going = 0;
         }
     }
@@ -226,9 +225,17 @@ double kd_vel;
 
 /* Motor Control */
 void move_field();
-
 Thread* th_motor_control;
 int8_t orState;
+
+
+/* Melody Thread */
+void play_melody();
+Thread* th_play_melody;
+std::map<std::string,double> notes;
+double melody[16][2];
+unsigned no_of_notes = 0;
+
 
 
 
@@ -254,8 +261,8 @@ void reset_threads();
 
 int main() 
 {
-    
-    std::map<std::string,double> notes;
+
+     pc.printf("Before\n\r");
     notes["C"] = 0.000477783f;
     notes["C#"] = 0.000450966f;
     notes["D^"] = 0.000450966f;
@@ -274,8 +281,8 @@ int main()
     notes["B^"] = 0.000268146f;
     notes["B"] = 0.000253096f;
 
-    std::vector< std::vector<double> > melody(16);
     
+  
     
     orState = motorHome();
     intState = orState;
@@ -310,18 +317,17 @@ int main()
     photointerrupter.rise(&increment_revolutions);
     
     /* Create Threads */
-    th_pid_rev = new Thread(osPriorityNormal, 2048);
-    th_pid_vel = new Thread(osPriorityNormal, 2048);
+    th_pid_rev = new Thread(osPriorityNormal, 1024);
+    th_pid_vel = new Thread(osPriorityNormal, 1024);
     th_motor_control = new Thread(osPriorityNormal, 1024);
+    th_play_melody = new Thread(osPriorityNormal, 1024);
     
     
     
     while (true) 
     {        
     
-        //L1L.period(G);
-        //L2L.period(G);
-        //L3L.period(G);
+
         
     
         //pc.printf("%f, %f\n\r", ang_velocity, revolutions);
@@ -453,6 +459,15 @@ int main()
             // Melody
             else if (cmd[0] == 'T')
             {
+                pc.printf("1\n\r");
+                for(unsigned i = 0; i <16; i++)
+                {
+                    for(unsigned j = 0; j < 2; j++)
+                    {
+                        melody[i][j] = 0;
+                    }
+                }
+                pc.printf("2\n\r");
                 unsigned i = 1;
                 unsigned note = 0;
                 char pitch[2];
@@ -462,19 +477,21 @@ int main()
                 {
                     pitch[0] = cmd[i++];
                     pitch[1] = cmd[i++];
-                    
+                    pc.printf("3\n\r");
                     // If not a sharp or flat
                     // eg. pitch = ['A', '4']
                     if(!(pitch[1] == '#' || pitch[1] == '^'))
                     {
                         // Convert char 'A' to std::string('A') and use to index `notes` map
                         double frequency = notes[std::string(1, pitch[0])];
+                        pc.printf("4\n\r");
                         // Convert char '4' to double 4.0
                         double duration = strtod(pitch+1, NULL);
-                       
-                        melody[note].push_back(frequency);
-                        melody[note].push_back(duration);
+                       pc.printf("5\n\r");
+                        melody[note][0] = frequency;
+                        melody[note][1] = duration;
                         note++;
+                        pc.printf("6\n\r");
                     }
                     
                     // If sharp or flat
@@ -488,18 +505,27 @@ int main()
                         dur[0] = cmd[i++];
                         double duration = strtod(dur, NULL);
                         
-                        melody[note].push_back(frequency);
-                        melody[note].push_back(duration);
+                        melody[note][0] = frequency;
+                        melody[note][1] = duration;
                         note++;
                     }
                     
                 } 
+                // Keep track of how many notes were requested
+                no_of_notes = note-1;
                 
-                for (unsigned i = 0; i < melody.size(); i++)
-                {
-                    pc.printf("%f, %f",melody[i][0], melody[i][1]);
-                }
-                     
+                wait_time = 100;
+                target_ang_velocity = 40;
+                
+                // Respawn threads
+                pc.printf("7\n\r");
+                th_motor_control->start(&move_field);
+                pc.printf("8\n\r");
+                th_pid_vel->start(&pid_vel);
+                pc.printf("9\n\r");
+                th_play_melody->start(&play_melody);
+                
+             
             }
             
 
@@ -634,17 +660,39 @@ void move_field()
     }
 }
 
+void play_melody()
+{
+
+    while(true)
+    {
+        for(unsigned i =0; i < no_of_notes; i++)
+        {
+         double frequency = melody[i][0];
+         L1L.period(frequency);
+         L2L.period(frequency);
+         L3L.period(frequency);
+         
+         Thread::wait(melody[i][1]);
+        }
+    }
+}       
+
 void reset_threads()
 {
     th_pid_vel->terminate();
     th_pid_rev->terminate();
     th_motor_control->terminate();
+    th_play_melody->terminate();
     
     delete th_pid_vel;
     delete th_pid_rev;
     delete th_motor_control;
+    delete th_play_melody;
     
-    th_pid_rev = new Thread(osPriorityNormal, 2048);
-    th_pid_vel = new Thread(osPriorityNormal, 2048);
+
+    th_pid_rev = new Thread(osPriorityNormal, 1024);
+    th_pid_vel = new Thread(osPriorityNormal, 1024);
     th_motor_control = new Thread(osPriorityNormal, 1024);
+    th_play_melody = new Thread(osPriorityNormal, 1024);
+
 }

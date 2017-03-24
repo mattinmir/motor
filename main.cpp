@@ -446,7 +446,6 @@ int main()
                     // Read in first two chars
                     pitch[0] = cmd[i++];
                     pitch[1] = cmd[i++];
-                    pc.printf("3\n\r");
                     
                     // If not a sharp or flat
                     // eg. pitch = ['A', '4']

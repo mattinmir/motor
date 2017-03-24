@@ -276,7 +276,7 @@ int main()
     // pid_rev  
     kp_rev = 0.2;
     ki_rev = 0.0;
-    kd_rev = 1500000000.0;
+    kd_rev = 3000000000.0;
     
     // Initial Wait Time
     wait_time = 100; // us
@@ -419,8 +419,6 @@ int main()
                 // Respawn threads
                 th_motor_control->start(&move_field);
                 th_pid_vel->start(&pid_vel);
-               
-                
             }
             
             // Melody
@@ -557,7 +555,9 @@ void pid_rev()
         // Store values for next iteration
         prev_error = error;
         prev_time = time;
-
+        
+        pc.printf("%f \n\r", revolutions);
+        
         Thread::wait(100); // ms    
     }
 }

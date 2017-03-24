@@ -6,31 +6,34 @@
 #include <RawSerial.h>
 #include <cstdlib>
 #include <string>
-#include <map>
 #include <vector>
 
 
-/*
 
-#define C 0.000477783f
-#define Cs 0.000450966f
-#define Db 0.000450966f
-#define D 0.000425655f
-#define Ds 0.000401765f
-#define Eb 0.000401765f
-#define E 0.000379216f
-#define F 0.000357932f
-#define Fs 0.000337842f
-#define Gb 0.000337842f
-#define G 0.000318882f
-#define Gs 0.000300984f
-#define Ab 0.000300984f
-#define A 0.000284091f
-#define As 0.000268146f
-#define Bb 0.000268146f
-#define B 0.000253096f
+#define Ab 0
+#define A 1
+#define As 2
+#define Bb 2
+#define B 3
+#define Bs 4
+#define Cb 3
+#define C 4
+#define Cs 5
+#define Db 5
+#define D 6
+#define Ds 7
+#define Eb 7
+#define E 8
+#define Es 9
+#define Fb 8
+#define F 9
+#define Fs 10
+#define Gb 10
+#define G 11
+#define Gs 0
 
-*/
+
+
 //Photointerrupter input pins
 #define I1pin D2
 #define I2pin D11
@@ -232,7 +235,6 @@ int8_t orState;
 /* Melody Thread */
 void play_melody();
 Thread* th_play_melody;
-std::map<std::string,double> notes;
 double melody[16][2];
 unsigned no_of_notes = 0;
  
@@ -246,15 +248,31 @@ unsigned no_of_notes = 0;
 /* Terminate, delete, & respawn threads */
 void reset_threads();
 
+double get_freq(char* note);
 
+
+unsigned map = 0;
+float frequencies[12] = {   0.000300984f, 
+                            0.000284091f, 
+                            0.000268146f, 
+                            0.000253096f,
+                            0.000477783f, 
+                            0.000450966f,
+                            0.000425655f,
+                            0.000401765f, 
+                            0.000379216f,
+                            0.000357932f, 
+                            0.000337842f,
+                            0.000318882f } ;
 /*************************************
                 Main
 *************************************/
 
 int main() 
 {
-
+    //std::map<double,double> notes;
      pc.printf("Before\n\r");
+    /* 
     notes["C"] = 0.000477783f;
     notes["C#"] = 0.000450966f;
     notes["D^"] = 0.000450966f;
@@ -274,7 +292,7 @@ int main()
     notes["B"] = 0.000253096f;
 
     
-
+    */
     
     orState = motorHome();
     intState = orState;
@@ -294,7 +312,7 @@ int main()
     // pid_rev  
     kp_rev = 0.2;
     ki_rev = 0.0;
-    kd_rev = 1000000000.0;
+    kd_rev = 1500000000.0;
     
     // Initial Wait Time
     wait_time = 100; // us
@@ -312,7 +330,7 @@ int main()
     th_pid_rev = new Thread(osPriorityNormal, 1024);
     th_pid_vel = new Thread(osPriorityNormal, 1024);
     th_motor_control = new Thread(osPriorityNormal, 1024);
-    th_play_melody = new Thread(osPriorityNormal, 1024);
+    th_play_melody = new Thread(osPriorityNormal, 512);
     
     
     
@@ -381,7 +399,7 @@ int main()
                     max_ang_velocity = abs(strtod(next_cmd+1, NULL));
                     
                     // Terminate and recreate Thread objects
-                    reset_threads();
+                    //reset_threads();
                     
                     // Reset count & wait time
                     revolutions = 0;
@@ -399,7 +417,7 @@ int main()
                 else
                 {
                     // Terminate and recreate Thread objects
-                    reset_threads();
+                    //reset_threads();
                     
                     // Reset count & wait time
                     revolutions = 0;
@@ -413,6 +431,7 @@ int main()
                     // Respawn threads
                     th_motor_control->start(&move_field);
                     th_pid_rev->start(&pid_rev);
+                    //th_play_melody->start(&play_melody);
 
                     
                 }
@@ -442,14 +461,17 @@ int main()
                 // Respawn threads
                 th_motor_control->start(&move_field);
                 th_pid_vel->start(&pid_vel);
+                th_play_melody->start(&play_melody);
+               
                 
             }
             
             
             // Melody
+            
             else if (cmd[0] == 'T')
             {
-                pc.printf("1\n\r");
+                
                 for(unsigned i = 0; i <16; i++)
                 {
                     for(unsigned j = 0; j < 2; j++)
@@ -457,6 +479,7 @@ int main()
                         melody[i][j] = 0;
                     }
                 }
+                
                 pc.printf("2\n\r");
                 unsigned i = 1;
                 unsigned note = 0;
@@ -468,20 +491,27 @@ int main()
                     pitch[0] = cmd[i++];
                     pitch[1] = cmd[i++];
                     pc.printf("3\n\r");
+                    
                     // If not a sharp or flat
                     // eg. pitch = ['A', '4']
                     if(!(pitch[1] == '#' || pitch[1] == '^'))
                     {
                         // Convert char 'A' to std::string('A') and use to index `notes` map
-                        double frequency = notes[std::string(1, pitch[0])];
+                    
+                           
+                        char padded_pitch[2];
+                        padded_pitch[0] = pitch[0];
+                        padded_pitch[1] = ' ';
+                               
+                        double frequency = get_freq(padded_pitch);
                         pc.printf("4\n\r");
                         // Convert char '4' to double 4.0
-                        double duration = strtod(pitch+1, NULL);
-                       pc.printf("5\n\r");
+                        double duration =strtod(pitch+1, NULL);
+                        pc.printf("5\n\r");
                         melody[note][0] = frequency;
                         melody[note][1] = duration;
                         note++;
-                        pc.printf("6\n\r");
+                        pc.printf("6\n\r"); 
                     }
                     
                     // If sharp or flat
@@ -489,7 +519,9 @@ int main()
                     else
                     {
                         // Convert char* ['F', '#'] to std::string("F#") and use to index `notes` map
-                        double frequency = notes[std::string(pitch, 2)];
+                        
+                        double frequency = get_freq(pitch);
+                        //double frequency = notes[std::string(pitch, 2)];
                         // Read in next char that is the duration and convert to double
                         char dur[1];
                         dur[0] = cmd[i++];
@@ -500,23 +532,32 @@ int main()
                         note++;
                     }
                     
+                    
+                    
                 } 
+                
+                
                 // Keep track of how many notes were requested
                 no_of_notes = note-1;
+                pc.printf("no_of_notes %d \n\r", no_of_notes);
+                
                 
                 wait_time = 100;
                 target_ang_velocity = 40;
                 
                 // Respawn threads
                 pc.printf("7\n\r");
-                th_motor_control->start(&move_field);
-                pc.printf("8\n\r");
-                th_pid_vel->start(&pid_vel);
-                pc.printf("9\n\r");
-                th_play_melody->start(&play_melody);
                 
+                pc.printf("8\n\r");
+                th_play_melody->start(&play_melody);
+                pc.printf("9\n\r");
+                th_pid_vel->start(&pid_vel);
+               
+                th_motor_control->start(&move_field);
              
             }
+            
+            
             
             
 
@@ -653,20 +694,23 @@ void move_field()
 
 void play_melody()
 {
-
+    pc.printf("11\n\r");
     while(true)
     {
+        
         for(unsigned i =0; i < no_of_notes; i++)
         {
          double frequency = melody[i][0];
          L1L.period(frequency);
          L2L.period(frequency);
          L3L.period(frequency);
-         
-         Thread::wait(melody[i][1]);
-         Thread::wait(100);
+         Thread::wait(melody[i][1]*1000);
         }
+
+        
+
     }
+    
 }    
   
 
@@ -678,11 +722,6 @@ void reset_threads()
     pc.printf(" 1.1 ");
     th_play_melody->terminate();
     
-    
-    //th_pid_vel->join();
-    //th_pid_rev->join();
-    //th_motor_control->join();
-    //th_play_melody->terminate();
     
     
     
@@ -698,6 +737,54 @@ void reset_threads()
     th_pid_vel = new Thread(osPriorityNormal, 1024);
     th_motor_control = new Thread(osPriorityNormal, 1024);
     pc.printf(" 3.1 ");
-    th_play_melody = new Thread(osPriorityNormal, 1024);
+    th_play_melody = new Thread(osPriorityNormal, 512);
     
+}
+
+double get_freq(char* note)
+{    
+    if(note == "A^")
+        {return frequencies[Ab];}
+    else if  (strcmp(note, "A ") == 0)
+        {return frequencies[A];}
+    else if  (strcmp(note, "A#") == 0)
+        {return frequencies[As];}
+    else if  (strcmp(note, "B^") == 0)
+        {return frequencies[Bb];}
+    else if  (strcmp(note, "B ") == 0)
+        {return frequencies[B];}
+    else if  (strcmp(note, "B#") == 0)
+        {return frequencies[Bs];}
+    else if  (strcmp(note, "C^") == 0)
+        {return frequencies[Cb];}
+    else if  (strcmp(note, "C ") == 0)
+        {return frequencies[C];}
+    else if  (strcmp(note, "C#") == 0)
+        {return frequencies[Cs];}
+    else if  (strcmp(note, "D^") == 0)
+        {return frequencies[Db];}
+     else if  (strcmp(note, "D ") == 0)
+        {return frequencies[D];}
+    else if  (strcmp(note, "D#") == 0)
+        {return frequencies[Ds];}
+    else if  (strcmp(note, "E^") == 0)
+        {return frequencies[Eb];}
+    else if  (strcmp(note, "E ") == 0)
+        {return frequencies[E];}
+    else if  (strcmp(note, "E#") == 0)
+        {return frequencies[Es];}  
+    else if  (strcmp(note, "F^") == 0)
+        {return frequencies[Fb];}
+    else if  (strcmp(note, "F ") == 0)
+        {return frequencies[F];}
+    else if  (strcmp(note, "F#") == 0)
+        {return frequencies[Fs];}
+    else if  (strcmp(note, "G^") == 0)
+        {return frequencies[Gb];}
+    else if  (strcmp(note, "G ") == 0)
+        {return frequencies[G];} 
+    else if  (strcmp(note, "G#") == 0)
+        {return frequencies[Gs];}  
+    else  
+        {return -1;}
 }

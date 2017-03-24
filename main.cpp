@@ -6,7 +6,7 @@
 #include <RawSerial.h>
 #include <cstdlib>
 #include <string>
-#include <vector>
+
 
 
 
@@ -64,20 +64,8 @@ State   L1  L2  L3
 7       -   -   -
 */
 
-/*
-typedef enum 
-{
-    osPriorityLow           = -2,
-    osPriorityBelowNormal   = -1,
-    osPriorityNormal        =  0,
-    osPriorityAboveNormal   =  1,
-    osPriorityHigh          =  2,
-    osPriorityError        =  0x84
-} osPriority;
-*/
-
+// A big number
 double dbl_max = std::numeric_limits<double>::max();
-
 
 //Drive state to output table
 const int8_t driveTable[] = {0x12,0x18,0x09,0x21,0x24,0x06,0x00,0x00};
@@ -138,35 +126,35 @@ inline int8_t readRotorState(){
     
 
 //Initialise the serial port
-//Serial pc(SERIAL_TX, SERIAL_RX);
 RawSerial pc(USBTX,USBRX);    
     
  
 //Basic synchronisation routine  -- improved to set to 0 before next command  
 int8_t motorHome() {
-    //Put the motor in drive state 0 and wait for it to stabilise
+
     motorOut(0);
     
-    int two_prev_state = -2;                        // states needed to determine when motor has stopped spinning
+    int two_prev_state = -2;                        
     int prev_state = -1;
     int current_state = readRotorState();
     int going = 1 ;   
     
+    // While the states are still changing, keep checking
     while(going==1){
-        if( !(current_state == prev_state && current_state == two_prev_state))  // while the states are still changing, keep shifting to the next state to compare
+        if( !(current_state == prev_state && current_state == two_prev_state))  
         {
             two_prev_state = prev_state;
             prev_state = current_state ;
             current_state = readRotorState();
-            wait(0.3);                  // should be tuned
+            wait(0.3);                 
         }
         else
         {
             going = 0;
         }
     }
+    
     //Get the rotor state
-    //pc.printf("out of motorhome");
     return readRotorState();
 }
 
@@ -228,12 +216,14 @@ double kd_vel;
 
 /* Motor Control */
 void move_field();
+
 Thread* th_motor_control;
 int8_t orState;
 
 
 /* Melody Thread */
 void play_melody();
+
 Thread* th_play_melody;
 double melody[16][2];
 unsigned no_of_notes = 0;
@@ -248,10 +238,10 @@ unsigned no_of_notes = 0;
 /* Terminate, delete, & respawn threads */
 void reset_threads();
 
+/* Map input to note frequencies */
 double get_freq(char* note);
 
 
-unsigned map = 0;
 float frequencies[12] = {   0.000300984f, 
                             0.000284091f, 
                             0.000268146f, 
@@ -270,35 +260,9 @@ float frequencies[12] = {   0.000300984f,
 
 int main() 
 {
-    //std::map<double,double> notes;
-     pc.printf("Before\n\r");
-    /* 
-    notes["C"] = 0.000477783f;
-    notes["C#"] = 0.000450966f;
-    notes["D^"] = 0.000450966f;
-    notes["D"] = 0.000425655f;
-    notes["D#"] = 0.000401765f;
-    notes["E^"] = 0.000401765f;
-    notes["E"] = 0.000379216f;
-    notes["F"] = 0.000357932f;
-    notes["F^"] = 0.000337842f;
-    notes["G^"] = 0.000337842f;
-    notes["G"] = 0.000318882f;
-    notes["G#"] = 0.000300984f;
-    notes["A^"] = 0.000300984f;
-    notes["A"] = 0.000284091f;
-    notes["A#"] = 0.000268146f;
-    notes["B^"] = 0.000268146f;
-    notes["B"] = 0.000253096f;
-
-    
-    */
-    
+  
     orState = motorHome();
     intState = orState;
-
-    
-    
 
     pc.printf("Hello\n\rEnter command to begin.\n\r");
     
@@ -336,13 +300,6 @@ int main()
     
     while (true) 
     {        
-    
-        //pc.printf("%f, %f\n\r", ang_velocity, revolutions);
-        //pc.printf("%f\n\r", revolutions);
-        //pc.printf("%f, %f, %f\n\r", target_ang_velocity, ang_velocity, wait_time);
-      
-
-        
         // On keypress read in chars and put into string to be processed into commands
         if(pc.readable())
         {     
@@ -373,8 +330,11 @@ int main()
                     pc.printf("%c", ch);
                 }
             }
-            pc.printf("after return");
+            
+            // Terminate and recreate Thread objects
             reset_threads();
+            
+            // Reset position of rotor
             motorHome();
             
             // Set target revolutions
@@ -384,11 +344,15 @@ int main()
                 
                 // Read revolution target and convert to double
                 target_revolutions = strtod(cmd+1, &next_cmd);
-                if(target_revolutions < 0 ){
+                
+                // Detect direction
+                if(target_revolutions < 0 )
+                {
                     lead = -2 ;
                     target_revolutions = abs(target_revolutions) ;
                 }
-                else{
+                else
+                {
                     lead = 2;
                 }
                 
@@ -397,10 +361,7 @@ int main()
                 {
                     // abs() to ignore sign
                     max_ang_velocity = abs(strtod(next_cmd+1, NULL));
-                    
-                    // Terminate and recreate Thread objects
-                    //reset_threads();
-                    
+                                        
                     // Reset count & wait time
                     revolutions = 0;
                     wait_time = 100;
@@ -416,8 +377,7 @@ int main()
                 // If no velocity given
                 else
                 {
-                    // Terminate and recreate Thread objects
-                    //reset_threads();
+
                     
                     // Reset count & wait time
                     revolutions = 0;
@@ -431,18 +391,18 @@ int main()
                     // Respawn threads
                     th_motor_control->start(&move_field);
                     th_pid_rev->start(&pid_rev);
-                    //th_play_melody->start(&play_melody);
-
-                    
                 }
             }
             
             // Set target velocity
             else if (cmd[0] == 'V')
             {
-                //pc.printf("V: %f\n\r",strtod(cmd+1, NULL));
+                // Read in target velocity
                 target_ang_velocity = strtod(cmd+1, NULL);
-                if(target_ang_velocity < 0){
+                
+                // Detect direction
+                if(target_ang_velocity < 0)
+                {
                     lead = -2 ;
                     target_ang_velocity = abs(target_ang_velocity);
                 }
@@ -450,9 +410,7 @@ int main()
                 {
                     lead =2;
                 }
-                // Terminate and recreate Thread objects
-                //reset_threads();
-
+                
                 // Reset wait time
                 wait_time = 100;
                 
@@ -461,17 +419,14 @@ int main()
                 // Respawn threads
                 th_motor_control->start(&move_field);
                 th_pid_vel->start(&pid_vel);
-                th_play_melody->start(&play_melody);
                
                 
             }
             
-            
             // Melody
-            
             else if (cmd[0] == 'T')
             {
-                
+                // Reset melody array
                 for(unsigned i = 0; i <16; i++)
                 {
                     for(unsigned j = 0; j < 2; j++)
@@ -480,7 +435,7 @@ int main()
                     }
                 }
                 
-                pc.printf("2\n\r");
+
                 unsigned i = 1;
                 unsigned note = 0;
                 char pitch[2];
@@ -488,6 +443,7 @@ int main()
                 // Repeat for every note given in command
                 while (i < size)
                 {
+                    // Read in first two chars
                     pitch[0] = cmd[i++];
                     pitch[1] = cmd[i++];
                     pc.printf("3\n\r");
@@ -496,83 +452,68 @@ int main()
                     // eg. pitch = ['A', '4']
                     if(!(pitch[1] == '#' || pitch[1] == '^'))
                     {
-                        // Convert char 'A' to std::string('A') and use to index `notes` map
-                    
-                           
+                        // Convert char 'A' to "A " and get corresponding freq value
                         char padded_pitch[2];
                         padded_pitch[0] = pitch[0];
                         padded_pitch[1] = ' ';
-                               
                         double frequency = get_freq(padded_pitch);
-                        pc.printf("4\n\r");
+
                         // Convert char '4' to double 4.0
                         double duration =strtod(pitch+1, NULL);
-                        pc.printf("5\n\r");
+                        
+                        // Add note to list of notes
                         melody[note][0] = frequency;
                         melody[note][1] = duration;
                         note++;
-                        pc.printf("6\n\r"); 
                     }
                     
                     // If sharp or flat
                     // eg. pitch = ['F', '#']
                     else
                     {
-                        // Convert char* ['F', '#'] to std::string("F#") and use to index `notes` map
-                        
+                        // Convert char* ['F', '#'] to "F#" and get corresponding freq value
                         double frequency = get_freq(pitch);
-                        //double frequency = notes[std::string(pitch, 2)];
+
                         // Read in next char that is the duration and convert to double
                         char dur[1];
                         dur[0] = cmd[i++];
                         double duration = strtod(dur, NULL);
                         
+                        // Add note to list of notes
                         melody[note][0] = frequency;
                         melody[note][1] = duration;
                         note++;
-                    }
-                    
-                    
-                    
+                    }                 
                 } 
                 
                 
                 // Keep track of how many notes were requested
                 no_of_notes = note-1;
-                pc.printf("no_of_notes %d \n\r", no_of_notes);
+
                 
                 
                 wait_time = 100;
                 target_ang_velocity = 40;
                 
                 // Respawn threads
-                pc.printf("7\n\r");
-                
-                pc.printf("8\n\r");
                 th_play_melody->start(&play_melody);
-                pc.printf("9\n\r");
                 th_pid_vel->start(&pid_vel);
-               
                 th_motor_control->start(&move_field);
-             
             }
-            
-            
-            
-            
-
         }
-     //pc.printf("....intState:   %d  .... \n\r" , intState );
+        
+     // Yield to other threads 
      Thread::wait(200);
     }
 }
  
- 
+ // Read state of rotor
  void check_photo() 
 {
     intState = readRotorState(); 
 }
 
+// Counting number of revolutions
 void increment_revolutions()
 {
     revolutions++;
@@ -585,15 +526,14 @@ void increment_revolutions()
     reference_time = current_time;
 }
 
-
+// PID to control R command
 void pid_rev()
 {
-
     while(true)
     {
-       
-        //pc.printf("PID \n\r");
+        //Max duty cycle since wait time is being used here for control
         delta = 1;
+        
         // Get time since last PID
         uint64_t time = pid_timer_rev.read_us();
         uint64_t time_since_last_pid = time - prev_time;
@@ -605,44 +545,32 @@ void pid_rev()
         
         // Weight errors to calculate output
         double output = kp_rev*error + ki_rev*error_sum + kd_rev*error_deriv;
-        
-        
-        //if(OGdelta ==0) OGdelta = output;
-        
-        //delta = (output > 0) ? output : 0;
-        
-        //delta = output/OGdelta;
-    
- 
-    
-        
+            
         // Lower limit output to small non-zero value to avoid divby0 error
         double output_angular_velocity = (output > 0) ? output : 0.00000001; 
-
-        pc.printf("%f,%f\n\r", output_angular_velocity, revolutions);
 
         // Cap at max velocity
         output_angular_velocity = (output_angular_velocity < max_ang_velocity) ? output_angular_velocity : max_ang_velocity;
 
         // Convert velocity to wait time
         wait_time = 1000000.0/((output_angular_velocity)*6.0);
-
         
         // Store values for next iteration
         prev_error = error;
         prev_time = time;
 
-        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_revolutions, revolutions, error, error_deriv, max_ang_velocity, ang_velocity);
-
         Thread::wait(100); // ms    
     }
 }
 
+// PID to control V command
 void pid_vel()
 {
     while(true)
     {       
+        // Using PWM not wait_time
         wait_time = 0;
+        
         // Get time since last PID
         uint64_t time = pid_timer_vel.read_us();
         uint64_t time_since_last_pid = time - prev_time;
@@ -652,65 +580,51 @@ void pid_vel()
         double error_sum = error * (double)time_since_last_pid; // Integral
         double error_deriv = (error - prev_error) / ((double)time_since_last_pid*1000000.0); // Derivative
         
-        // Weight errors to calculate output
-        //double output = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
+        // Weight errors to calculate delta
         delta = kp_vel*error + ki_vel*error_sum + kd_vel*error_deriv;
-        
-        
-        //pc.printf("%f\n\r", delta);
-        
-        // Lower limit output to small non-zero value to avoid divby0 error
-       // double output_angular_velocity = (output > 0) ? output : 0.00000001; 
-        
-        // Convert velocity to wait time
-        //wait_time = 1000000.0/((output_angular_velocity)*6.0);
-        
         
         // Store values for next iteration
         prev_error = error;
         prev_time = time;
         
-        //Debugging
-        //pc.printf("%f, %f, %f, %f, %f, %f\n\r",target_ang_velocity, ang_velocity, error, error_sum, error_deriv, wait_time);
-        //pc.printf("ang vel: %f  \n\r" , ang_velocity );
+        
         Thread::wait(100); // ms    
     }
 }
 
+// Change field state
 void move_field()
 {
     while(true)
-    {
-        //pc.printf("%f\n\r", wait_time);
+    {        
         motorOut((intState-orState+lead+6)%6); //+6 to make sure the remainder is positive 
-        //pc.printf("state:  %d \r\n" , states) ;
+        
+        // When pid_rev is in use, we use wait_time
         if(wait_time>0)
         {
-        Thread::wait(wait_time/1000.0);  
+            Thread::wait(wait_time/1000.0);  
         }
         
     }
 }
 
+// Plays notes in melody array
 void play_melody()
 {
-    pc.printf("11\n\r");
     while(true)
     {
-        
         for(unsigned i =0; i < no_of_notes; i++)
         {
-         double frequency = melody[i][0];
-         L1L.period(frequency);
-         L2L.period(frequency);
-         L3L.period(frequency);
-         Thread::wait(melody[i][1]*1000);
+             double frequency = melody[i][0]; // melody[i][0] = note freq
+             
+             // Set duty cycle
+             L1L.period(frequency);
+             L2L.period(frequency);
+             L3L.period(frequency);
+             
+             Thread::wait(melody[i][1]*1000); // melody[i][1] = note duration
         }
-
-        
-
     }
-    
 }    
   
 
@@ -719,28 +633,21 @@ void reset_threads()
     th_pid_vel->terminate();
     th_pid_rev->terminate();
     th_motor_control->terminate();
-    pc.printf(" 1.1 ");
     th_play_melody->terminate();
-    
-    
-    
     
     delete th_pid_vel;
     delete th_pid_rev;
     delete th_motor_control;
-    pc.printf(" 2.1 ");
     delete th_play_melody;
-    
-    
 
     th_pid_rev = new Thread(osPriorityNormal, 1024);
     th_pid_vel = new Thread(osPriorityNormal, 1024);
     th_motor_control = new Thread(osPriorityNormal, 1024);
-    pc.printf(" 3.1 ");
-    th_play_melody = new Thread(osPriorityNormal, 512);
-    
+    th_play_melody = new Thread(osPriorityNormal, 512); 
 }
 
+
+// Lookup table mapping inputs to frequencies
 double get_freq(char* note)
 {    
     if(note == "A^")
